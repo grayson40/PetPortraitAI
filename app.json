@@ -1,10 +1,11 @@
 {
   "expo": {
-    "scheme": "acme",
+    "name": "PetPortrait",
+    "slug": "pet-portrait",
+    "scheme": "petportrait",
+    "version": "1.0.0",
     "plugins": [
       "expo-router"
-    ],
-    "name": "PetPortrait",
-    "slug": "PetPortrait"
+    ]
   }
 }
