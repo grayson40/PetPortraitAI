@@ -49,10 +49,15 @@ export default {
     scheme: 'petportrait',
     extra: {
       eas: {
-        projectId: process.env.EAS_PROJECT_ID || 'your-project-id'
+        projectId: process.env.EAS_PROJECT_ID
       },
       supabaseUrl: process.env.SUPABASE_URL,
-      supabaseAnonKey: process.env.SUPABASE_ANON_KEY
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+      apiUrl: process.env.API_URL,
+      stripePriceIdMonthly: process.env.STRIPE_PRICE_ID_MONTHLY,
+      stripePriceIdYearly: process.env.STRIPE_PRICE_ID_YEARLY,
+      stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+      stripeMerchantIdentifier: process.env.STRIPE_MERCHANT_IDENTIFIER,
     },
     experiments: {
       tsconfigPaths: true,

@@ -22,9 +22,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={({ navigation }) => ({
-          title: 'Feed',
+          title: 'Sounds',
           tabBarIcon: ({ color }) => (
-            <MaterialIcons name="photo-library" size={24} color={color} />
+            <MaterialIcons name="music-note" size={24} color={color} />
           ),
           headerRight: () => (
             <Pressable 

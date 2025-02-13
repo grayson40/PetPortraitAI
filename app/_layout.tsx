@@ -5,7 +5,8 @@ import { View, ActivityIndicator } from 'react-native';
 import { theme } from './styles/theme';
 import { initializeSupabase } from './services/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
+import { StripeProvider } from '@stripe/stripe-react-native';
+import { STRIPE_CONFIG } from './constants/config';
 // Initialize Supabase on app start
 initializeSupabase();
 
@@ -42,8 +43,13 @@ function ProtectedLayout() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <ProtectedLayout />
-    </AuthProvider>
+    <StripeProvider
+      publishableKey={STRIPE_CONFIG.publishableKey}
+      merchantIdentifier={STRIPE_CONFIG.merchantIdentifier || ''}
+    >
+      <AuthProvider>
+        <ProtectedLayout />
+      </AuthProvider>
+    </StripeProvider>
   );
 } 
