@@ -9,12 +9,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 interface SearchSheetProps {
   visible: boolean;
   onClose: () => void;
-  onSearchResults: (results: Photo[]) => void;
+  onSoundSelect: (sound: any) => void;
 }
 
-export default function SearchSheet({ visible, onClose, onSearchResults }: SearchSheetProps) {
+type SoundCategory = 'all' | 'attention' | 'training' | 'food';
+
+export default function SearchSheet({ visible, onClose, onSoundSelect }: SearchSheetProps) {
   const [query, setQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'pets' | 'people' | 'places'>('all');
+  const [activeFilter, setActiveFilter] = useState<SoundCategory>('all');
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const inputRef = useRef<TextInput>(null);
@@ -44,19 +46,19 @@ export default function SearchSheet({ visible, onClose, onSearchResults }: Searc
 
   const handleSearch = (text: string) => {
     setQuery(text);
-    // Implement search logic here
+    // Implement sound search logic here
   };
 
-  const FilterChip = ({ type, label }: { type: typeof activeFilter; label: string }) => (
+  const FilterChip = ({ type, label }: { type: SoundCategory; label: string }) => (
     <Pressable
       style={[styles.filterChip, activeFilter === type && styles.activeFilterChip]}
       onPress={() => setActiveFilter(type)}
     >
       <MaterialIcons 
         name={
-          type === 'pets' ? 'pets' :
-          type === 'people' ? 'person' :
-          type === 'places' ? 'place' : 'search'
+          type === 'attention' ? 'notifications' :
+          type === 'training' ? 'pets' :
+          type === 'food' ? 'restaurant' : 'music-note'
         }
         size={16}
         color={activeFilter === type ? theme.colors.text.inverse : theme.colors.text.secondary}
@@ -95,7 +97,7 @@ export default function SearchSheet({ visible, onClose, onSearchResults }: Searc
           <TextInput
             ref={inputRef}
             style={styles.input}
-            placeholder="Search pets, people, or places..."
+            placeholder="Search sounds..."
             value={query}
             onChangeText={handleSearch}
             placeholderTextColor={theme.colors.text.secondary}
@@ -113,15 +115,15 @@ export default function SearchSheet({ visible, onClose, onSearchResults }: Searc
       </View>
 
       <View style={styles.filters}>
-        <FilterChip type="all" label="All" />
-        <FilterChip type="pets" label="Pets" />
-        <FilterChip type="people" label="People" />
-        <FilterChip type="places" label="Places" />
+        <FilterChip type="all" label="All Sounds" />
+        <FilterChip type="attention" label="Attention" />
+        <FilterChip type="training" label="Training" />
+        <FilterChip type="food" label="Food" />
       </View>
 
       {query.length === 0 && (
         <View style={styles.recentSearches}>
-          <Text style={styles.sectionTitle}>Recent Searches</Text>
+          <Text style={styles.sectionTitle}>Recent Sounds</Text>
           {recentSearches.map((search, index) => (
             <Pressable 
               key={index}
@@ -130,6 +132,12 @@ export default function SearchSheet({ visible, onClose, onSearchResults }: Searc
             >
               <MaterialIcons name="history" size={20} color={theme.colors.text.secondary} />
               <Text style={styles.recentSearchText}>{search}</Text>
+              <MaterialIcons 
+                name="play-arrow" 
+                size={20} 
+                color={theme.colors.text.secondary}
+                style={styles.playIcon}
+              />
             </Pressable>
           ))}
         </View>
@@ -213,15 +221,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: theme.colors.text.secondary,
     marginBottom: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
   },
   recentSearchItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
     gap: theme.spacing.sm,
+    borderRadius: theme.borderRadius.md,
   },
   recentSearchText: {
     fontSize: theme.typography.body.fontSize,
     color: theme.colors.text.primary,
+  },
+  playIcon: {
+    marginLeft: 'auto',
   },
 }); 

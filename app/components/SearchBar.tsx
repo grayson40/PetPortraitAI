@@ -62,7 +62,7 @@ export default function SearchBar({ onSearch, onFocus, onBlur }: SearchBarProps)
           />
           <TextInput
             style={styles.input}
-            placeholder="Search pets, people, or places..."
+            placeholder="Search sounds..."
             value={query}
             onChangeText={handleSearch}
             onFocus={() => {
