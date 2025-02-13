@@ -1,24 +1,61 @@
-import { View, Text, StyleSheet, TextInput, Pressable, Modal, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Pressable, Modal, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { theme } from '../styles/theme';
+import { API_CONFIG } from '../constants/config';
+import { getSupabase } from '../services/supabase';
 
 interface AddPetModalProps {
   visible: boolean;
   onClose: () => void;
-  onAdd: (pet: { name: string; type: string }) => void;
+  onAdd: (pet: { id: string; name: string; type: string }) => void;
 }
 
 export default function AddPetModal({ visible, onClose, onAdd }: AddPetModalProps) {
   const [name, setName] = useState('');
   const [type, setType] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleAdd = () => {
-    if (name.trim() && type.trim()) {
-      onAdd({ name: name.trim(), type: type.trim() });
+  const handleAdd = async () => {
+    if (!name.trim() || !type.trim()) return;
+
+    setLoading(true);
+    try {
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      const response = await fetch(`${API_CONFIG.url}/pets`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: user.id,
+          name: name.trim(),
+          type: type.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to add pet');
+      }
+
+      const newPet = await response.json();
+      
+      if (!newPet || !newPet.name) {
+        throw new Error('Invalid pet data received from server');
+      }
+
+      onAdd(newPet);
       setName('');
       setType('');
       onClose();
+    } catch (error) {
+      console.error('Error adding pet:', error);
+      Alert.alert('Error', 'Failed to add pet');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -69,11 +106,18 @@ export default function AddPetModal({ visible, onClose, onAdd }: AddPetModalProp
             </View>
 
             <Pressable 
-              style={[styles.button, !name.trim() || !type.trim() ? styles.buttonDisabled : null]}
+              style={[
+                styles.button, 
+                (!name.trim() || !type.trim() || loading) && styles.buttonDisabled
+              ]}
               onPress={handleAdd}
-              disabled={!name.trim() || !type.trim()}
+              disabled={!name.trim() || !type.trim() || loading}
             >
-              <Text style={styles.buttonText}>Add Pet</Text>
+              {loading ? (
+                <ActivityIndicator color={theme.colors.text.inverse} />
+              ) : (
+                <Text style={styles.buttonText}>Add Pet</Text>
+              )}
             </Pressable>
           </Pressable>
         </KeyboardAvoidingView>

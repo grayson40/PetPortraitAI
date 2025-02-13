@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, Pressable, Modal, FlatList, Image, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Modal, FlatList, Image, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../styles/theme';
 import { mockPhotos, Photo } from '../data/mockPhotos';
@@ -9,79 +9,22 @@ interface PetDetailsModalProps {
   visible: boolean;
   onClose: () => void;
   pet: {
+    id: string;
     name: string;
     type: string;
   };
-  onDelete?: () => void;
+  onDelete: () => void;
+  onEdit: () => void;
 }
 
-export default function PetDetailsModal({ visible, onClose, pet, onDelete }: PetDetailsModalProps) {
-  // Add early return if pet is null
+export default function PetDetailsModal({ 
+  visible, 
+  onClose, 
+  pet, 
+  onDelete, 
+  onEdit 
+}: PetDetailsModalProps) {
   if (!pet) return null;
-
-  // Mock filtering photos by pet name
-  const petPhotos = mockPhotos.filter(photo => photo.petName === pet.name);
-
-  const renderPhoto = ({ item }: { item: Photo }) => (
-    <Pressable 
-      style={styles.photoContainer}
-      onPress={() => {
-        onClose();
-        router.push(`/(authenticated)/photo/${item.id}`);
-      }}
-    >
-      <Image 
-        source={{ uri: item.imageUrl }} 
-        style={styles.photo}
-        resizeMode="cover"
-      />
-    </Pressable>
-  );
-
-  const ListHeader = () => (
-    <Fragment>
-      <View style={styles.dragIndicator} />
-      <View style={styles.modalHeader}>
-        <View style={styles.headerLeft}>
-          <MaterialIcons name="pets" size={24} color={theme.colors.primary} />
-          <View>
-            <Text style={styles.petName}>{pet.name}</Text>
-            <Text style={styles.petType}>{pet.type}</Text>
-          </View>
-        </View>
-        <Pressable onPress={onClose}>
-          <MaterialIcons name="close" size={24} color={theme.colors.text.primary} />
-        </Pressable>
-      </View>
-
-      <View style={styles.stats}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{petPhotos.length}</Text>
-          <Text style={styles.statLabel}>Photos</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>
-            {petPhotos.reduce((acc, photo) => acc + photo.likes, 0)}
-          </Text>
-          <Text style={styles.statLabel}>Likes</Text>
-        </View>
-      </View>
-
-      <Text style={styles.sectionTitle}>Recent Photos</Text>
-    </Fragment>
-  );
-
-  const ListFooter = () => (
-    onDelete ? (
-      <Pressable 
-        style={styles.deleteButton}
-        onPress={onDelete}
-      >
-        <MaterialIcons name="delete" size={20} color={theme.colors.error} />
-        <Text style={styles.deleteText}>Remove Pet</Text>
-      </Pressable>
-    ) : null
-  );
 
   return (
     <Modal
@@ -91,37 +34,38 @@ export default function PetDetailsModal({ visible, onClose, pet, onDelete }: Pet
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <Pressable 
-        style={styles.modalOverlay}
-        onPress={onClose}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.keyboardView}
-        >
-          <Pressable 
-            style={styles.modalContent} 
-            onPress={e => e.stopPropagation()}
-          >
-            <FlatList
-              data={petPhotos}
-              renderItem={renderPhoto}
-              keyExtractor={item => item.id}
-              numColumns={3}
-              contentContainerStyle={styles.photosGrid}
-              ListHeaderComponent={ListHeader}
-              ListFooterComponent={ListFooter}
-              ListEmptyComponent={
-                <View style={styles.emptyState}>
-                  <MaterialIcons name="photo-library" size={48} color={theme.colors.text.secondary} />
-                  <Text style={styles.emptyText}>No photos yet</Text>
-                </View>
-              }
-              showsVerticalScrollIndicator={false}
-            />
-          </Pressable>
-        </KeyboardAvoidingView>
-      </Pressable>
+      <View style={styles.modalOverlay}>
+        <Pressable style={styles.dismissArea} onPress={onClose} />
+        <View style={styles.bottomSheet}>
+          <View style={styles.modalHeader}>
+            <View style={styles.headerLeft}>
+              <MaterialIcons name="pets" size={24} color={theme.colors.primary} />
+              <View>
+                <Text style={styles.petName}>{pet.name}</Text>
+                <Text style={styles.petType}>{pet.type}</Text>
+              </View>
+            </View>
+            <Pressable onPress={onClose}>
+              <MaterialIcons name="close" size={24} color={theme.colors.text.primary} />
+            </Pressable>
+          </View>
+
+          <View style={styles.actions}>
+            <Pressable style={styles.actionButton} onPress={onEdit}>
+              <MaterialIcons name="edit" size={20} color={theme.colors.primary} />
+              <Text style={styles.actionText}>Edit Pet</Text>
+            </Pressable>
+
+            <Pressable 
+              style={[styles.actionButton, styles.deleteButton]} 
+              onPress={onDelete}
+            >
+              <MaterialIcons name="delete" size={20} color={theme.colors.error} />
+              <Text style={[styles.actionText, styles.deleteText]}>Remove Pet</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -131,16 +75,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
-    margin: 0,
   },
-  modalContent: {
+  dismissArea: {
+    flex: 1,
+  },
+  bottomSheet: {
     backgroundColor: theme.colors.background,
     borderTopLeftRadius: theme.borderRadius.lg,
     borderTopRightRadius: theme.borderRadius.lg,
-    padding: theme.spacing.lg,
     maxHeight: '85%',
-    width: '100%',
-    margin: 0,
   },
   dragIndicator: {
     width: 40,
@@ -148,13 +91,13 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.border,
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: theme.spacing.md,
+    marginVertical: theme.spacing.md,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: theme.spacing.lg,
+    marginHorizontal: theme.spacing.lg,
     paddingBottom: theme.spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
@@ -176,7 +119,8 @@ const styles = StyleSheet.create({
   stats: {
     flexDirection: 'row',
     gap: theme.spacing.xl,
-    marginBottom: theme.spacing.lg,
+    marginHorizontal: theme.spacing.lg,
+    marginVertical: theme.spacing.lg,
   },
   statItem: {
     alignItems: 'center',
@@ -194,9 +138,11 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.body.fontSize,
     fontWeight: '600',
     color: theme.colors.text.primary,
+    marginHorizontal: theme.spacing.lg,
     marginBottom: theme.spacing.md,
   },
   photosGrid: {
+    paddingHorizontal: theme.spacing.lg,
     gap: theme.spacing.sm,
   },
   photoContainer: {
@@ -218,22 +164,38 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
     marginTop: theme.spacing.sm,
   },
+  actions: {
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.sm,
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+  },
+  actionText: {
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.primary,
+    fontWeight: '600',
+  },
   deleteButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: theme.spacing.sm,
     padding: theme.spacing.md,
-    marginTop: theme.spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    backgroundColor: theme.colors.error + '10',
+    borderRadius: theme.borderRadius.md,
   },
   deleteText: {
     fontSize: theme.typography.body.fontSize,
     color: theme.colors.error,
-  },
-  keyboardView: {
-    width: '100%',
-    margin: 0,
+    fontWeight: '600',
   },
 }); 

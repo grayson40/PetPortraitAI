@@ -19,6 +19,17 @@ export default function ProfileLayout() {
           headerTintColor: theme.colors.primary,
         }}
       />
+      <Stack.Screen
+        name="settings"
+        options={{
+          presentation: 'modal',
+          headerTitle: 'Settings',
+          headerStyle: {
+            backgroundColor: theme.colors.background,
+          },
+          headerTintColor: theme.colors.primary,
+        }}
+      />
     </Stack>
   );
 } 

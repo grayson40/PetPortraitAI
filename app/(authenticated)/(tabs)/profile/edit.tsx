@@ -1,9 +1,10 @@
-import { View, Text, StyleSheet, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { useState } from 'react';
+import { View, Text, StyleSheet, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
+import { useState, useEffect } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { theme } from '../../../styles/theme';
 import { getSupabase } from '../../../services/supabase';
+import { API_CONFIG } from '../../../constants/config';
 
 interface EditProfileForm {
   displayName: string;
@@ -18,22 +19,69 @@ export default function EditProfile() {
     email: '',
   });
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+
+  useEffect(() => {
+    loadUserProfile();
+  }, []);
+
+  const loadUserProfile = async () => {
+    try {
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      const response = await fetch(`${API_CONFIG.url}/users/${user.id}`);
+      const userData = await response.json();
+
+      if (!response.ok) throw new Error('Failed to load user data');
+
+      setForm({
+        displayName: userData.display_name || '',
+        phone: userData.phone || '',
+        email: user.email || '',
+      });
+    } catch (error) {
+      console.error('Error loading profile:', error);
+      Alert.alert('Error', 'Failed to load profile data');
+    } finally {
+      setInitializing(false);
+    }
+  };
 
   const handleSave = async () => {
     try {
       setLoading(true);
-      const { data: { user }, error } = await getSupabase().auth.updateUser({
-        email: form.email,
-        data: {
-          display_name: form.displayName,
-          phone: form.phone,
-        }
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      // Update Supabase auth email if changed
+      if (user.email !== form.email) {
+        const { error: emailError } = await getSupabase().auth.updateUser({
+          email: form.email,
+        });
+        if (emailError) throw emailError;
+      }
+
+      // Update user profile in your API
+      const response = await fetch(`${API_CONFIG.url}/users/${user.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          display_name: form.displayName.trim(),
+          phone: form.phone.trim(),
+        }),
       });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to update profile');
+      }
 
-      Alert.alert('Success', 'Profile updated successfully');
-      router.back();
+      Alert.alert('Success', 'Profile updated successfully', [
+        { text: 'OK', onPress: () => router.back() }
+      ]);
     } catch (error) {
       console.error('Error updating profile:', error);
       Alert.alert('Error', 'Failed to update profile');
@@ -41,6 +89,14 @@ export default function EditProfile() {
       setLoading(false);
     }
   };
+
+  if (initializing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView 
@@ -182,5 +238,11 @@ const styles = StyleSheet.create({
     color: theme.colors.text.inverse,
     fontSize: theme.typography.body.fontSize,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.background,
   },
 }); 
