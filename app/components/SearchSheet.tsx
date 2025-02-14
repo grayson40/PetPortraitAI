@@ -3,7 +3,6 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../styles/theme';
 import { BlurView } from 'expo-blur';
 import { useState, useRef, useEffect } from 'react';
-import { Photo } from '../data/mockPhotos';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface SearchSheetProps {

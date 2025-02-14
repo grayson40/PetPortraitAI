@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import 'react-native-url-polyfill/auto';
+import { SUPABASE_CONFIG } from '../constants/config';
 
-const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl;
-const supabaseAnonKey = Constants.expoConfig?.extra?.supabaseAnonKey;
+const supabaseUrl = SUPABASE_CONFIG.url;
+const supabaseAnonKey = SUPABASE_CONFIG.anonKey;
 
 const createSupabaseClient = () => {
   return createClient(supabaseUrl, supabaseAnonKey, {

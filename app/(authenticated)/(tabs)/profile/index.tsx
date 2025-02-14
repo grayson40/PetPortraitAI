@@ -1,16 +1,16 @@
-import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Image, FlatList, Dimensions, Animated, ActivityIndicator, RefreshControl, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Image, Dimensions, Animated, RefreshControl } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
-import { authService } from '../../../services/auth';
 import { getSupabase } from '../../../services/supabase';
 import { theme } from '../../../styles/theme';
-import { mockPhotos } from '../../../data/mockPhotos';
-import { router, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import LoadingIndicator from '../../../components/LoadingIndicator';
 import AddPetModal from '../../../components/AddPetModal';
 import PetDetailsModal from '../../../components/PetDetailsModal';
 import { API_CONFIG } from '../../../constants/config';
 import { UserService } from '../../../services/user';
+import { useAuth } from '../../../context/auth';
+import SubscriptionModal from '../../../components/SubscriptionModal';
 
 const { width } = Dimensions.get('window');
 const PHOTO_SIZE = width / 4 - theme.spacing.sm * 2;
@@ -19,6 +19,14 @@ interface Pet {
   id: string;
   name: string;
   type: string;
+}
+
+interface Sound {
+  id: string;
+  name: string;
+  url?: string;
+  category: string;
+  isPremium: boolean;
 }
 
 interface UserProfile {
@@ -43,6 +51,7 @@ interface SoundCollection {
 }
 
 export default function Profile() {
+  const { signOut } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -53,26 +62,32 @@ export default function Profile() {
   const router = useRouter();
   const [soundCollections, setSoundCollections] = useState<SoundCollection[]>([]);
   const [soundVolume, setSoundVolume] = useState(80);
-  const [isUpgradeModalVisible, setIsUpgradeModalVisible] = useState(false);
+  const [isSubscriptionModalVisible, setIsSubscriptionModalVisible] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const userService = UserService.getInstance();
+      const { data: { user } } = await getSupabase().auth.getUser();
       
-      const profileData = await userService.getProfile();
+      if (user) {
+        const userService = UserService.getInstance();
+        const profileData = await userService.getUserProfile();
+        
+        setProfile(profileData);
+        setSoundVolume(profileData.sound_volume);
 
-      setProfile(profileData);
-      setSoundVolume(profileData.sound_volume);
-
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }).start();
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }).start();
+      }
     } catch (error) {
       console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load profile');
+      if (error instanceof Error && error.message !== 'No user found') {
+        Alert.alert('Error', 'Failed to load profile');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -80,7 +95,21 @@ export default function Profile() {
   };
 
   useEffect(() => {
-    loadData();
+    const { data: { subscription } } = getSupabase().auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        loadData();
+      }
+    });
+
+    getSupabase().auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        loadData();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleRefresh = async () => {
@@ -97,7 +126,7 @@ export default function Profile() {
 
   const handleSignOut = async () => {
     try {
-      await getSupabase().auth.signOut();
+      await signOut();
     } catch (error) {
       console.error('Error signing out:', error);
       Alert.alert('Error', 'Failed to sign out');
@@ -107,18 +136,38 @@ export default function Profile() {
   const handleDeleteAccount = async () => {
     Alert.alert(
       'Delete Account',
-      'Are you sure you want to delete your account? This action cannot be undone.',
+      'This will permanently delete your account and all associated data. This action cannot be undone.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Cancel', 
+          style: 'cancel' 
+        },
         {
-          text: 'Delete',
+          text: 'Delete Account',
           style: 'destructive',
           onPress: async () => {
             try {
-              await authService.deleteAccount();
+              setLoading(true);
+              const { data: { user } } = await getSupabase().auth.getUser();
+              if (!user) throw new Error('No user found');
+
+              // Delete user profile from your API
+              const response = await fetch(`${API_CONFIG.url}/users/${user.id}`, {
+                method: 'DELETE',
+              });
+
+              if (!response.ok) {
+                throw new Error('Failed to delete user profile');
+              }
+
+              // Sign out and delete Supabase user
+              await getSupabase().auth.signOut();
+              router.replace('/(auth)/login');
             } catch (error) {
-              Alert.alert('Error', 'Failed to delete account');
-              console.error(error);
+              console.error('Error deleting account:', error);
+              Alert.alert('Error', 'Failed to delete account. Please try again.');
+            } finally {
+              setLoading(false);
             }
           }
         }
@@ -194,7 +243,7 @@ export default function Profile() {
     setSelectedPet(null);
     
     router.push({
-      pathname: '/(authenticated)/(tabs)/profile/edit-pet',
+      pathname: '/(authenticated)/(tabs)/profile/edit',
       params: { 
         petId: pet.id,
         petName: pet.name,
@@ -203,46 +252,20 @@ export default function Profile() {
     });
   };
 
-  console.log(profile);
-
-  const handleApiCall = async () => {
-    const response = await fetch(`${API_CONFIG.url}/users`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        email: 'graysoncrozier40@gmail.com',
-        id: 'b7cb3136-813c-4fb0-8724-87b8417f8aef',
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to create user');
+  const handleUpgrade = async () => {
+    try {
+      setUpgrading(true);
+      // Handle your upgrade logic here
+      // For example:
+      // await subscriptionService.upgrade();
+      // await loadData();  // Refresh profile data
+    } catch (error) {
+      console.error('Error upgrading:', error);
+      throw error;
+    } finally {
+      setUpgrading(false);
     }
-
-    const data = await response.json();
-    console.log(data);
-  }
-
-  const handlePetPress = (pet: Pet) => {
-    if (!pet?.id) return;
-    setSelectedPet(pet);
-    setIsPetDetailsModalVisible(true);
   };
-
-  const renderPhoto = ({ item: photo }) => (
-    <Pressable 
-      style={styles.photoContainer}
-      onPress={() => router.push(`/(authenticated)/photo/${photo.id}`)}
-    >
-      <Image 
-        source={{ uri: photo.imageUrl }} 
-        style={styles.photo}
-        resizeMode="cover"
-      />
-    </Pressable>
-  );
 
   if (loading) {
     return (
@@ -256,215 +279,152 @@ export default function Profile() {
   }
 
   return (
-    <>
-      <ScrollView 
-        style={styles.container}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-          />
-        }
-      >
-        <View style={styles.header}>
-          <View style={styles.avatarContainer}>
-            <MaterialIcons name="person" size={40} color={theme.colors.text.inverse} />
-          </View>
-          <Text style={styles.name}>{profile?.display_name || 'User'}</Text>
-          <Text style={styles.email}>{profile?.email}</Text>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+      }
+    >
+      {/* Profile Header */}
+      <View style={styles.header}>
+        <View style={styles.avatarContainer}>
+          <MaterialIcons name="person" size={40} color={theme.colors.text.inverse} />
         </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionGrid}>
-            <Pressable 
-              key="edit-profile"
-              style={styles.actionButton}
-              onPress={() => router.push('/(authenticated)/(tabs)/profile/edit')}
-            >
-              <MaterialIcons name="edit" size={24} color={theme.colors.primary} />
-              <Text style={styles.actionText}>Edit Profile</Text>
-            </Pressable>
-
-            <Pressable 
-              key="settings"
-              style={styles.actionButton}
-              onPress={() => router.push('/(authenticated)/(tabs)/profile/settings')}
-            >
-              <MaterialIcons name="settings" size={24} color={theme.colors.primary} />
-              <Text style={styles.actionText}>Settings</Text>
-            </Pressable>
-
-            {profile?.subscription_tier === 'basic' && (
-              <Pressable 
-                key="upgrade"
-                style={styles.actionButton}
-                onPress={() => setIsUpgradeModalVisible(true)}
-              >
-                <MaterialIcons name="star" size={24} color={theme.colors.primary} />
-                <Text style={styles.actionText}>Upgrade to Pro</Text>
-              </Pressable>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>My Pets</Text>
-            <Pressable 
-              style={styles.addButton}
-              onPress={() => setIsAddPetModalVisible(true)}
-            >
-              <View style={styles.addButtonInner}>
-                <MaterialIcons name="add" size={20} color={theme.colors.text.inverse} />
-                <Text style={styles.addButtonText}>Add Pet</Text>
-              </View>
-            </Pressable>
-          </View>
-
-          <View style={styles.petsContainer}>
-            {profile?.pets?.map((pet) => (
-              <Pressable
-                key={`pet-${pet.id}`}
-                style={styles.petTag}
-                onPress={() => handlePetPress(pet)}
-              >
-                <MaterialIcons name="pets" size={20} color={theme.colors.primary} />
-                <Text style={styles.petName}>{pet.name}</Text>
-                <Text style={styles.petType}>({pet.type})</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Photos</Text>
-          <FlatList
-            data={mockPhotos.slice(0, 8)}
-            renderItem={renderPhoto}
-            keyExtractor={item => item.id}
-            numColumns={4}
-            scrollEnabled={false}
-            contentContainerStyle={styles.photosGrid}
-          />
-        </View>
-
-        {profile?.active_collection && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Active Collection</Text>
-            <View style={styles.collectionCard}>
-              <MaterialIcons name="play-circle-filled" size={24} color={theme.colors.primary} />
-              <View style={styles.collectionInfo}>
-                <Text style={styles.collectionName}>{profile.active_collection.name}</Text>
-                <Text style={styles.soundCount}>{profile.active_collection.sounds_count} sounds</Text>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {profile?.subscription_tier === 'basic' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Premium Features</Text>
-            <View style={styles.upgradeFeatures}>
-              {[
-                'Unlimited sound collections',
-                'Access to premium sounds',
-                'Advanced pet detection'
-              ].map((feature, index) => (
-                <View key={`feature-${index}`} style={styles.featureItem}>
-                  <MaterialIcons name="check-circle" size={24} color={theme.colors.success} />
-                  <Text style={styles.featureText}>{feature}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          <View style={styles.accountActions}>
-            <Pressable style={styles.accountButton} onPress={handleSignOut}>
-              <MaterialIcons name="logout" size={24} color={theme.colors.text.secondary} />
-              <Text style={styles.accountButtonText}>Sign Out</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.buttonContainer}>
+        <Text style={styles.name}>{profile?.display_name || 'User'}</Text>
+        <Text style={styles.email}>{profile?.email || 'email@email.com'}</Text>
+        
+        <View style={styles.actionButtons}>
           <Pressable 
-            style={[styles.button, styles.deleteButton]}
-            onPress={handleDeleteAccount}
+            style={styles.actionButton}
+            onPress={() => router.push('/(authenticated)/(tabs)/profile/edit')}
           >
-            <Text style={styles.buttonText}>Delete Account</Text>
+            <MaterialIcons name="edit" size={20} color={theme.colors.primary} />
+            <Text style={styles.actionButtonText}>Edit Profile</Text>
+          </Pressable>
+          
+          <Pressable 
+            style={styles.actionButton}
+            onPress={() => router.push('/(authenticated)/(tabs)/profile/settings')}
+          >
+            <MaterialIcons name="settings" size={20} color={theme.colors.primary} />
+            <Text style={styles.actionButtonText}>Settings</Text>
           </Pressable>
         </View>
-      </ScrollView>
+      </View>
 
-      <AddPetModal
+      {/* Subscription Card */}
+      <Pressable 
+        style={styles.subscriptionCard}
+        onPress={() => setIsSubscriptionModalVisible(true)}
+      >
+        <View style={styles.subscriptionContent}>
+          <MaterialIcons 
+            name={profile?.subscription_tier === 'premium' ? 'star' : 'star-border'} 
+            size={24} 
+            color={theme.colors.primary} 
+          />
+          <View style={styles.subscriptionInfo}>
+            <Text style={styles.subscriptionTier}>
+              {profile?.subscription_tier === 'premium' ? 'Premium' : 'Basic'} Plan
+            </Text>
+            {profile?.subscription_tier !== 'premium' && (
+              <Text style={styles.upgradeText}>Upgrade for more features</Text>
+            )}
+          </View>
+          <MaterialIcons name="chevron-right" size={24} color={theme.colors.text.secondary} />
+        </View>
+      </Pressable>
+
+      {/* Pets Section */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>My Pets</Text>
+          <Pressable 
+            style={styles.addButton}
+            onPress={() => setIsAddPetModalVisible(true)}
+          >
+            <MaterialIcons name="add" size={20} color={theme.colors.text.inverse} />
+            <Text style={styles.addButtonText}>Add Pet</Text>
+          </Pressable>
+        </View>
+        
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.petsScroll}
+        >
+          {profile?.pets.map(pet => (
+            <Pressable 
+              key={pet.id}
+              style={styles.petCard}
+              onPress={() => {
+                setSelectedPet(pet);
+                setIsPetDetailsModalVisible(true);
+              }}
+            >
+              <View style={styles.petIcon}>
+                <MaterialIcons name="pets" size={24} color={theme.colors.text.inverse} />
+              </View>
+              <Text style={styles.petName}>{pet.name}</Text>
+              <Text style={styles.petType}>{pet.type}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* Account Actions */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Account</Text>
+        <View style={styles.accountActions}>
+          <Pressable 
+            style={styles.accountButton}
+            onPress={handleSignOut}
+          >
+            <MaterialIcons name="logout" size={24} color={theme.colors.error} />
+            <Text style={[styles.accountButtonText, { color: theme.colors.error }]}>
+              Sign Out
+            </Text>
+          </Pressable>
+
+          <View style={styles.accountDivider} />
+
+          <Pressable 
+            style={styles.accountButton}
+            onPress={handleDeleteAccount}
+          >
+            <MaterialIcons name="delete-forever" size={24} color={theme.colors.error} />
+            <Text style={[styles.accountButtonText, { color: theme.colors.error }]}>
+              Delete Account
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Modals */}
+      <AddPetModal 
         visible={isAddPetModalVisible}
         onClose={() => setIsAddPetModalVisible(false)}
         onAdd={handleAddPet}
       />
-
+      
       <PetDetailsModal
         visible={isPetDetailsModalVisible}
+        pet={selectedPet}
         onClose={() => {
           setIsPetDetailsModalVisible(false);
-          setTimeout(() => {
-            setSelectedPet(null);
-          }, 300);
+          setSelectedPet(null);
         }}
-        pet={selectedPet}
-        onDelete={() => selectedPet && handleDeletePet(selectedPet.id)}
-        onEdit={() => selectedPet && handleEditPet(selectedPet)}
+        onDelete={handleDeletePet}
+        onEdit={handleEditPet}
       />
 
-      <Modal
-        visible={isUpgradeModalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setIsUpgradeModalVisible(false)}
-      >
-        <Pressable 
-          style={styles.modalOverlay} 
-          onPress={() => setIsUpgradeModalVisible(false)}
-        >
-          <View style={styles.upgradeModal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Upgrade to Pro</Text>
-              <Pressable onPress={() => setIsUpgradeModalVisible(false)}>
-                <MaterialIcons name="close" size={24} color={theme.colors.text.primary} />
-              </Pressable>
-            </View>
-
-            <View style={styles.upgradeFeatures}>
-              <View style={styles.featureItem}>
-                <MaterialIcons name="check-circle" size={24} color={theme.colors.success} />
-                <Text style={styles.featureText}>Unlimited sound collections</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <MaterialIcons name="check-circle" size={24} color={theme.colors.success} />
-                <Text style={styles.featureText}>Access to premium sounds</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <MaterialIcons name="check-circle" size={24} color={theme.colors.success} />
-                <Text style={styles.featureText}>Advanced pet detection</Text>
-              </View>
-            </View>
-
-            <Pressable 
-              style={styles.upgradeButton}
-              onPress={() => {
-                setIsUpgradeModalVisible(false);
-                router.push('/(authenticated)/(tabs)/profile/subscription');
-              }}
-            >
-              <Text style={styles.upgradeButtonText}>Continue to Pro</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
-    </>
+      <SubscriptionModal
+        visible={isSubscriptionModalVisible}
+        onClose={() => setIsSubscriptionModalVisible(false)}
+        currentTier={profile?.subscription_tier || 'basic'}
+        loading={upgrading}
+      />
+    </ScrollView>
   );
 }
 
@@ -476,27 +436,34 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     padding: theme.spacing.xl,
+    backgroundColor: theme.colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
   avatarContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: theme.spacing.md,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   name: {
-    fontSize: theme.typography.h2.fontSize,
-    fontWeight: theme.typography.h2.fontWeight,
+    fontSize: 24,
+    fontWeight: '600',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.xs,
   },
   email: {
-    fontSize: theme.typography.body.fontSize,
+    fontSize: 16,
     color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.md,
   },
   section: {
     padding: theme.spacing.lg,
@@ -505,55 +472,145 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
   },
   sectionTitle: {
-    fontSize: theme.typography.h2.fontSize,
+    fontSize: 20,
     fontWeight: '600',
     color: theme.colors.text.primary,
-    marginBottom: theme.spacing.md,
   },
-  actionGrid: {
+  actionButtons: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: theme.spacing.md,
   },
   actionButton: {
-    flex: 1,
-    minWidth: '45%',
-    alignItems: 'center',
-    padding: theme.spacing.lg,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    gap: theme.spacing.sm,
-  },
-  actionText: {
-    fontSize: theme.typography.body.fontSize,
-    color: theme.colors.text.primary,
-  },
-  petsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.sm,
-  },
-  petTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.xs,
     padding: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: theme.spacing.sm,
+  },
+  actionButtonText: {
+    fontSize: 14,
+    color: theme.colors.text.primary,
+    fontWeight: '500',
+  },
+  petsScroll: {
+    marginHorizontal: -theme.spacing.lg,
+    paddingHorizontal: theme.spacing.lg,
+  },
+  petCard: {
+    width: 120,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.md,
+    marginRight: theme.spacing.md,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  petIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: theme.spacing.sm,
   },
   petName: {
-    fontSize: theme.typography.body.fontSize,
+    fontSize: 16,
+    fontWeight: '600',
     color: theme.colors.text.primary,
+    marginBottom: theme.spacing.xs,
   },
   petType: {
-    fontSize: theme.typography.caption.fontSize,
+    fontSize: 14,
     color: theme.colors.text.secondary,
   },
-  photosGrid: {
+  subscriptionCard: {
+    margin: theme.spacing.lg,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  subscriptionContent: {
+    padding: theme.spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+  },
+  subscriptionInfo: {
+    flex: 1,
+  },
+  subscriptionTier: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.xs,
+  },
+  upgradeText: {
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
+    borderRadius: theme.borderRadius.full,
     gap: theme.spacing.sm,
+  },
+  addButtonText: {
+    color: theme.colors.text.inverse,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  accountActions: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
+    overflow: 'hidden',
+  },
+  accountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
+  },
+  accountButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  accountDivider: {
+    height: 1,
+    backgroundColor: theme.colors.border,
+    marginHorizontal: theme.spacing.md,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContent: {
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: theme.spacing.md,
+    fontSize: 16,
+    color: theme.colors.text.secondary,
   },
   photoContainer: {
     width: PHOTO_SIZE,
@@ -565,132 +622,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  collectionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: theme.spacing.lg,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    gap: theme.spacing.md,
-  },
-  collectionInfo: {
-    flex: 1,
-  },
-  collectionName: {
-    fontSize: theme.typography.body.fontSize,
-    fontWeight: '500',
-    color: theme.colors.text.primary,
-  },
-  soundCount: {
-    fontSize: theme.typography.caption.fontSize,
-    color: theme.colors.text.secondary,
-  },
-  accountActions: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-  },
-  accountButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: theme.spacing.lg,
-    gap: theme.spacing.md,
-  },
-  accountButtonText: {
-    fontSize: theme.typography.body.fontSize,
-    color: theme.colors.text.primary,
-  },
-  buttonContainer: {
-    padding: theme.spacing.lg,
+  photosGrid: {
     gap: theme.spacing.sm,
-  },
-  button: {
-    backgroundColor: theme.colors.primary,
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    alignItems: 'center',
-  },
-  deleteButton: {
-    backgroundColor: theme.colors.error,
-  },
-  buttonText: {
-    color: theme.colors.text.inverse,
-    fontSize: theme.typography.body.fontSize,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  loadingContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: theme.spacing.md,
-    fontSize: theme.typography.body.fontSize,
-    color: theme.colors.text.primary,
-  },
-  addButton: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.borderRadius.full,
-    overflow: 'hidden',
-  },
-  addButtonInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    gap: theme.spacing.xs,
-  },
-  addButtonText: {
-    color: theme.colors.text.inverse,
-    fontSize: theme.typography.body.fontSize,
-    fontWeight: '500',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  upgradeModal: {
-    backgroundColor: theme.colors.background,
-    borderTopLeftRadius: theme.borderRadius.lg,
-    borderTopRightRadius: theme.borderRadius.lg,
-    padding: theme.spacing.lg,
-    gap: theme.spacing.lg,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  modalTitle: {
-    fontSize: theme.typography.h2.fontSize,
-    fontWeight: theme.typography.h2.fontWeight,
-    color: theme.colors.text.primary,
-  },
-  upgradeFeatures: {
-    gap: theme.spacing.md,
-  },
-  featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.md,
-  },
-  featureText: {
-    fontSize: theme.typography.body.fontSize,
-    color: theme.colors.text.primary,
-  },
-  upgradeButton: {
-    backgroundColor: theme.colors.primary,
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    alignItems: 'center',
-  },
-  upgradeButtonText: {
-    color: theme.colors.text.inverse,
-    fontSize: theme.typography.body.fontSize,
-    fontWeight: '600',
   },
 }); 

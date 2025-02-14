@@ -16,7 +16,7 @@ export const authService = {
     if (!hasCompletedOnboarding) {
       router.replace('/onboarding');
     } else {
-      router.replace('/(authenticated)/');
+      router.replace('/(authenticated)/(tabs)');
     }
 
     return data;

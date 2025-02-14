@@ -1,14 +1,8 @@
 import { Slot, useSegments, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/auth';
-import { View, ActivityIndicator } from 'react-native';
-import { theme } from './styles/theme';
-import { initializeSupabase } from './services/supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { STRIPE_CONFIG } from './constants/config';
-// Initialize Supabase on app start
-initializeSupabase();
 
 function ProtectedLayout() {
   const { session, loading } = useAuth();
@@ -19,22 +13,10 @@ function ProtectedLayout() {
     if (loading) return;
 
     const inAuthGroup = segments[0] === '(auth)';
-    const inOnboardingGroup = segments[0] === 'onboarding';
 
-    if (!session) {
-      // Redirect to login if not authenticated
-      if (!inAuthGroup) {
-        router.replace('/(auth)/login');
-      }
-    } else {
-      // Check onboarding status when authenticated
-      AsyncStorage.getItem('hasCompletedOnboarding').then(hasCompleted => {
-        if (!hasCompleted && !inOnboardingGroup) {
-          router.replace('/onboarding');
-        } else if (hasCompleted && (inAuthGroup || inOnboardingGroup)) {
-          router.replace('/(authenticated)/');
-        }
-      });
+    if (!session && !inAuthGroup) {
+      // Redirect to login if no session and not already in auth group
+      router.replace('/(auth)/login');
     }
   }, [session, loading, segments]);
 

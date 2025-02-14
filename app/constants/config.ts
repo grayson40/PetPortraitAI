@@ -9,17 +9,6 @@ export const SUPABASE_CONFIG = {
   anonKey: Constants.expoConfig?.extra?.supabaseAnonKey as string,
 };
 
-export const SUBSCRIPTION_TIERS = {
-  basic: {
-    price: 19.99,
-    photoLimit: 50,
-  },
-  premium: {
-    price: 39.99,
-    photoLimit: 'unlimited',
-  },
-};
-
 export const STRIPE_CONFIG = {
   publishableKey: Constants.expoConfig?.extra?.stripePublishableKey as string,
   merchantIdentifier: Constants.expoConfig?.extra?.stripeMerchantIdentifier as string,

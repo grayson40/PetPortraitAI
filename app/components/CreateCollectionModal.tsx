@@ -2,8 +2,6 @@ import { View, Text, StyleSheet, TextInput, Pressable, Modal, KeyboardAvoidingVi
 import { MaterialIcons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { theme } from '../styles/theme';
-import { API_CONFIG } from '../constants/config';
-import { getSupabase } from '../services/supabase';
 
 interface Sound {
   id: string;
@@ -17,16 +15,16 @@ interface Sound {
 interface CreateCollectionModalProps {
   visible: boolean;
   onClose: () => void;
-  onAdd: (collection: { id: string; name: string; sounds: Array<{
-    sound_id: string;
-    sound_type: 'default' | 'marketplace' | 'user';
-    order_index: number;
-    sound: Sound;
-  }> }) => void;
-  defaultSounds: Sound[];
+  onCreate: (name: string, selectedSounds: string[]) => void;
+  sounds: Sound[];
 }
 
-export default function CreateCollectionModal({ visible, onClose, onAdd, defaultSounds }: CreateCollectionModalProps) {
+export default function CreateCollectionModal({ 
+  visible, 
+  onClose, 
+  onCreate, 
+  sounds 
+}: CreateCollectionModalProps) {
   const [name, setName] = useState('');
   const [selectedSounds, setSelectedSounds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -34,40 +32,11 @@ export default function CreateCollectionModal({ visible, onClose, onAdd, default
 
   const handleAdd = async () => {
     if (!name.trim()) return;
-
     setLoading(true);
     try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
-
-      const soundsToAdd = Array.from(selectedSounds).map((soundId, index) => ({
-        sound_id: soundId,
-        sound_type: 'default' as const,
-        order_index: index,
-        sound: defaultSounds.find(s => s.id === soundId)!
-      }));
-
-      const response = await fetch(`${API_CONFIG.url}/sounds/collections`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: user.id,
-          name: name.trim(),
-          sounds: soundsToAdd,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create collection');
-      }
-
-      const newCollection = await response.json();
-      onAdd(newCollection);
+      onCreate(name.trim(), Array.from(selectedSounds));
       setName('');
       setSelectedSounds(new Set());
-      onClose();
     } catch (error) {
       console.error('Error creating collection:', error);
       Alert.alert('Error', 'Failed to create collection');
@@ -88,7 +57,7 @@ export default function CreateCollectionModal({ visible, onClose, onAdd, default
     });
   };
 
-  const filteredSounds = defaultSounds.filter(sound => 
+  const filteredSounds = sounds.filter(sound => 
     sound.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     sound.category.toLowerCase().includes(searchQuery.toLowerCase())
   );

@@ -41,7 +41,7 @@ export default function SoundSelector({
             >
               <View style={styles.iconContainer}>
                 <MaterialIcons 
-                  name={sound.icon} 
+                  name={sound.icon as keyof typeof MaterialIcons.glyphMap} 
                   size={28} 
                   color={isSelected ? 
                     theme.colors.primary : 

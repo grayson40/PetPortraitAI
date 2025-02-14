@@ -2,12 +2,16 @@ import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { authService } from '../services/auth';
 import { theme } from '../styles/theme';
+import { UserService } from '../services/user';
+import { useRouter } from 'expo-router';
+import { supabase } from '../services/supabase';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+  const router = useRouter();
 
   const handleSubmit = async () => {
     if (!email || !password) {
@@ -17,22 +21,22 @@ export default function Login() {
 
     setLoading(true);
     try {
-      if (isSignUp) {
-        await authService.signUp(email, password);
-        Alert.alert(
-          'Success', 
-          'Please check your email for verification link',
-          [{ text: 'OK', onPress: () => {
-            setEmail('');
-            setPassword('');
-            setIsSignUp(false);
-          }}]
-        );
-      } else {
-        await authService.signIn(email, password);
-      }
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+      if (!data?.session) throw new Error('No session');
+
+      // Initialize user cache before navigation
+      const userService = UserService.getInstance();
+      await userService.initializeUserCache(data.session);
+
+      router.replace('/(authenticated)/(tabs)');
     } catch (error) {
-      Alert.alert('Error', error.message);
+      console.error('Error logging in:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Invalid email or password');
     } finally {
       setLoading(false);
     }
@@ -48,7 +52,7 @@ export default function Login() {
       await authService.resetPassword(email);
       Alert.alert('Success', 'Check your email for reset instructions');
     } catch (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to reset password');
     }
   };
 

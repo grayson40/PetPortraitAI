@@ -6,6 +6,7 @@ import { theme } from '../../../styles/theme';
 import { getSupabase } from '../../../services/supabase';
 import { API_CONFIG } from '../../../constants/config';
 import Slider from '@react-native-community/slider';
+import SubscriptionModal from '../../../components/SubscriptionModal';
 
 interface UserSettings {
   sound_volume: number;
@@ -15,6 +16,8 @@ interface UserSettings {
 export default function Settings() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSubscriptionModalVisible, setIsSubscriptionModalVisible] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -123,7 +126,7 @@ export default function Settings() {
           {settings?.subscription_tier === 'basic' && (
             <Pressable 
               style={styles.upgradeButton}
-              onPress={() => router.push('/(authenticated)/(tabs)/profile/subscription')}
+              onPress={() => setIsSubscriptionModalVisible(true)}
             >
               <Text style={styles.upgradeButtonText}>Upgrade to Premium</Text>
             </Pressable>
@@ -145,6 +148,13 @@ export default function Settings() {
           ))}
         </View>
       </View>
+
+      <SubscriptionModal
+        visible={isSubscriptionModalVisible}
+        onClose={() => setIsSubscriptionModalVisible(false)}
+        currentTier={settings?.subscription_tier || 'basic'}
+        loading={upgrading}
+      />
     </ScrollView>
   );
 }

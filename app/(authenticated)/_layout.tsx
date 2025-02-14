@@ -1,3 +1,4 @@
+import React from 'react';
 import { Stack, useGlobalSearchParams, router } from 'expo-router';
 import { theme } from '../styles/theme';
 import { useState, useEffect } from 'react';
@@ -7,7 +8,6 @@ export default function AuthenticatedLayout() {
   const [showSearch, setShowSearch] = useState(false);
   const params = useGlobalSearchParams();
 
-  // Listen for search param changes from the tab navigation
   useEffect(() => {
     if (params.showSearch === 'true' && params.source === 'searchIcon') {
       setShowSearch(true);
@@ -16,7 +16,6 @@ export default function AuthenticatedLayout() {
 
   const handleCloseSearch = () => {
     setShowSearch(false);
-    // Reset both params
     router.setParams({ 
       showSearch: 'false',
       source: undefined 
@@ -25,26 +24,15 @@ export default function AuthenticatedLayout() {
 
   return (
     <>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-        }}
-      >
-        <Stack.Screen
-          name="(tabs)"
-          options={{
-            headerShown: false,
-          }}
-        />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="photo/[id]"
           options={{
             presentation: 'modal',
             headerShown: true,
             headerTitle: 'Photo Details',
-            headerStyle: {
-              backgroundColor: theme.colors.background,
-            },
+            headerStyle: { backgroundColor: theme.colors.background },
             headerTintColor: theme.colors.primary,
           }}
         />
@@ -53,10 +41,7 @@ export default function AuthenticatedLayout() {
       <SearchSheet
         visible={showSearch}
         onClose={handleCloseSearch}
-        onSearchResults={(results) => {
-          handleCloseSearch();
-          // Handle search results
-        }}
+        onSoundSelect={() => {}}
       />
     </>
   );

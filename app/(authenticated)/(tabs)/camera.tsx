@@ -6,7 +6,6 @@ import { theme } from '../../styles/theme';
 import * as MediaLibrary from 'expo-media-library';
 import { mockSounds, Sound } from '../../data/mockSounds';
 import SoundSelector from '../../components/SoundSelector';
-import { soundService } from '../../services/sound';
 import FaceDetection, { Face } from '@react-native-ml-kit/face-detection';
 import { router } from 'expo-router';
 import { getSupabase } from '../../services/supabase';
@@ -51,7 +50,6 @@ export default function CameraScreen() {
 
     return () => {
       isMounted = false;
-      soundService.cleanup();
     };
   }, []);
 

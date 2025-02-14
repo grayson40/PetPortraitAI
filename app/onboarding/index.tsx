@@ -56,7 +56,7 @@ export default function Onboarding() {
       if (error) throw error;
 
       await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
-      router.replace('/(authenticated)/');
+      router.replace('/(authenticated)/(tabs)');
     } catch (error) {
       console.error('Error saving user data:', error);
       Alert.alert('Error', 'Failed to save your profile information');

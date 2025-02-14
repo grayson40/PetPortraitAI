@@ -1,30 +1,43 @@
-import { View, Text, StyleSheet, Pressable, Alert, ScrollView, ActivityIndicator, ActionSheetIOS, Platform, RefreshControl } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, Platform, RefreshControl, Pressable, Alert, ActionSheetIOS, Image } from 'react-native';
 import { useState, useEffect } from 'react';
-import { MaterialIcons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { router } from 'expo-router';
+import { SoundService } from '../../services/sound';
+import { UserService } from '../../services/user';
+import { Header } from './components/Header';
+import { ActiveCollection } from './components/ActiveCollection';
+import { SoundGrid } from './components/SoundGrid';
+import LoadingIndicator from '../../components/LoadingIndicator';
+import FilterSheet from '../../components/FilterSheet';
 import { theme } from '../../styles/theme';
-import { getSupabase } from '../../services/supabase';
-import { API_CONFIG } from '../../constants/config';
-import * as Haptics from 'expo-haptics';
+import { MaterialIcons } from '@expo/vector-icons';
 import CreateCollectionModal from '../../components/CreateCollectionModal';
 import AddSoundsModal from '../../components/AddSoundsModal';
-import LoadingIndicator from '../../components/LoadingIndicator';
-import { SoundService } from '../../services/sound';
+import * as Haptics from 'expo-haptics';
+import { CollectionService } from '../../services/collection';
+import { LinearGradient } from 'expo-linear-gradient';
+import { SoundPreviewPlayer } from '../../components/SoundPreviewPlayer';
+import CollectionModal from '../../components/CollectionModal';
+import MarketplaceModal from '../../components/MarketplaceModal';
+import SubscriptionModal from '../../components/SubscriptionModal';
 
 interface Sound {
   id: string;
   name: string;
-  url: string;
+  url?: string;
   category: string;
-  description: string;
-  created_at: string;
+  isPremium: boolean;
+}
+
+interface UserProfile {
+  subscription_tier: string;
 }
 
 interface SoundCollection {
   id: string;
   name: string;
   is_active: boolean;
-  created_at: string;
-  user_id: string;
   collection_sounds: Array<{
     sound_id: string;
     sound_type: 'default' | 'marketplace' | 'user';
@@ -33,111 +46,589 @@ interface SoundCollection {
   }>;
 }
 
+interface SoundPack {
+  id: string;
+  name: string;
+  description: string;
+  price: string;
+  image: any; // ImageSourcePropType
+  sounds: Sound[];
+}
+
+interface FeaturedCollection {
+  id: string;
+  name: string;
+  description: string;
+  coverImage: string;
+  soundCount: number;
+  isActive: boolean;
+}
+
+interface PremiumFeature {
+  id: string;
+  title: string;
+  description: string;
+  icon: keyof typeof MaterialIcons.glyphMap;
+}
+
+const getShadow = (size: 'small' | 'medium' | 'large') => {
+  if (Platform.OS === 'ios') {
+    return theme.shadows[size];
+  }
+  return {
+    elevation: size === 'small' ? 3 : size === 'medium' ? 5 : 8,
+  };
+};
+
+// Basic users only see these default sounds
+const DEFAULT_SOUNDS: Sound[] = [
+  { id: '1', name: 'Basic Bark', category: 'dogs', isPremium: false },
+  { id: '2', name: 'Basic Meow', category: 'cats', isPremium: false },
+  { id: '3', name: 'Basic Whistle', category: 'training', isPremium: false },
+];
+
+// Add more premium sounds
+const PREMIUM_SOUNDS: Sound[] = [
+  { id: '4', name: 'Pro Bark', category: 'dogs', isPremium: true },
+  { id: '5', name: 'Pro Meow', category: 'cats', isPremium: true },
+  { id: '6', name: 'Training Whistle', category: 'training', isPremium: true },
+  { id: '7', name: 'Attention Bell', category: 'attention', isPremium: true },
+  { id: '8', name: 'Reward Chime', category: 'reward', isPremium: true },
+  { id: '9', name: 'Bird Call', category: 'birds', isPremium: true },
+  // Add more premium sounds
+];
+
+const FEATURED_PACKS = [
+  {
+    id: 'pack1',
+    name: 'Professional Dog Training',
+    description: 'Essential sounds for dog training',
+    image: '',
+    sounds: [
+      { id: 'dt1', name: 'Pro Clicker', category: 'training', isPremium: true },
+      { id: 'dt2', name: 'Whistle Long', category: 'training', isPremium: true },
+    ],
+  },
+  {
+    id: 'pack2',
+    name: 'Cat Behavior',
+    description: '20 specialized cat behavior sounds',
+    price: '$3.99',
+    image: '',
+    sounds: [
+      { id: 'cb1', name: 'Purring', category: 'cats', isPremium: true },
+      { id: 'cb2', name: 'Kitten Call', category: 'cats', isPremium: true },
+      // ... more sounds
+    ],
+  },
+  // ... more packs
+];
+
+const PREMIUM_FEATURES: PremiumFeature[] = [
+  {
+    id: 'sounds',
+    title: 'Unlimited Sounds',
+    description: 'Access 100+ professional pet attention sounds',
+    icon: 'library-music',
+  },
+  {
+    id: 'collections',
+    title: 'Custom Collections',
+    description: 'Create and manage your sound collections',
+    icon: 'folder',
+  },
+  {
+    id: 'recording',
+    title: 'Sound Recording',
+    description: 'Record and upload your own sounds',
+    icon: 'mic',
+  },
+  {
+    id: 'advanced',
+    title: 'Advanced Features',
+    description: 'Priority processing and premium support',
+    icon: 'star',
+  },
+];
+
+const FEATURED_COLLECTIONS: FeaturedCollection[] = [
+  {
+    id: 'dogs',
+    name: 'Dog Training',
+    description: 'Essential sounds for dog photography',
+    coverImage: '',
+    soundCount: 25,
+    isActive: false,
+  },
+  {
+    id: 'cats',
+    name: 'Cat Attention',
+    description: 'Proven sounds to catch cat attention',
+    coverImage: '',
+    soundCount: 20,
+    isActive: false,
+  },
+  // Add more featured collections
+];
+
 export default function SoundManagement() {
-  const [collections, setCollections] = useState<SoundCollection[]>([]);
-  const [defaultSounds, setDefaultSounds] = useState<Sound[]>([]);
+  const [sounds, setSounds] = useState<Sound[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isFilterSheetVisible, setIsFilterSheetVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [isAddSoundsVisible, setIsAddSoundsVisible] = useState(false);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
+  const [collections, setCollections] = useState<SoundCollection[]>([]);
+  const [previewingSound, setPreviewingSound] = useState<Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [isMarketplaceVisible, setIsMarketplaceVisible] = useState(false);
+  const [selectedCollection, setSelectedCollection] = useState(null);
+  const [isCollectionModalVisible, setIsCollectionModalVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubscriptionModalVisible, setIsSubscriptionModalVisible] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+
+  const isPremium = userProfile?.subscription_tier === 'premium';
+
+  const filteredSounds = useMemo(() => {
+    if (!activeFilters.length) return sounds;
+    return sounds.filter(sound => 
+      activeFilters.includes(sound.category.toLowerCase())
+    );
+  }, [sounds, activeFilters]);
 
   useEffect(() => {
     loadData();
+    loadUserProfile();
+    loadCollections();
   }, []);
 
   const loadData = async () => {
     try {
-      const soundService = SoundService.getInstance();
       setLoading(true);
-      
-      const [defaultSounds, collections] = await Promise.all([
+      const [soundService, collectionService] = [
+        SoundService.getInstance(),
+        CollectionService.getInstance(),
+      ];
+
+      const [allSounds, userCollections] = await Promise.all([
         soundService.getDefaultSounds(),
-        soundService.getUserCollections(),
+        isPremium ? collectionService.getUserCollections() : [],
       ]);
 
-      setDefaultSounds(defaultSounds);
-      setCollections(collections);
-
-      if (!collections?.length) {
-        const defaultCollection = await soundService.createCollection(
-          'Default Collection',
-          defaultSounds.map((sound, index) => ({
-            sound_id: sound.id,
-            sound_type: 'default',
-            order_index: index,
-          }))
-        );
-        setCollections([defaultCollection]);
+      if (userProfile?.subscription_tier === 'premium') {
+        setSounds([...DEFAULT_SOUNDS, ...PREMIUM_SOUNDS]);
+        setCollections(userCollections);
+      } else {
+        setSounds(DEFAULT_SOUNDS);
       }
     } catch (error) {
-      console.error('Error loading sounds:', error);
-      Alert.alert('Error', 'Failed to load sounds');
+      console.error('Error loading data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadUserProfile = async () => {
+    try {
+      const userService = UserService.getInstance();
+      const profile = await userService.getUserProfile();
+      setUserProfile(profile);
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+    }
+  };
+
+  const loadCollections = async () => {
+    try {
+      setIsLoading(true);
+      const collectionService = CollectionService.getInstance();
+      const userCollections = await collectionService.getUserCollections();
+      setCollections(userCollections);
+    } catch (error) {
+      console.error('Error loading collections:', error);
+      Alert.alert('Error', 'Failed to load collections');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([loadData(), loadUserProfile()]);
+    setRefreshing(false);
+  };
+
+  const handleRefresh = async () => {
+    try {
+      setRefreshing(true);
+      const collectionService = CollectionService.getInstance();
+      const userCollections = await collectionService.getUserCollections();
+      setCollections(userCollections);
+    } catch (error) {
+      console.error('Error refreshing collections:', error);
+    } finally {
       setRefreshing(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <LoadingIndicator />
+        <Text style={styles.loadingText}>Loading your sounds...</Text>
+      </View>
+    );
+  }
+
+  const handleCollectionPress = (collection) => {
+    setSelectedCollection(collection);
+    setIsCollectionModalVisible(true);
+  };
+
+  const handleCreateCollection = async (name: string, selectedSounds: string[]) => {
+    try {
+      const collectionService = CollectionService.getInstance();
+      const newCollection = await collectionService.createCollection(
+        name,
+        selectedSounds.map((soundId, index) => ({
+          sound_id: soundId,
+          order_index: index,
+        }))
+      );
+      setCollections(prev => [...prev, newCollection]);
+      setIsCreateModalVisible(false);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error creating collection:', error);
+      Alert.alert('Error', 'Failed to create collection');
+    }
+  };
+
+  const handleSaveCollection = async () => {
+    if (!selectedCollection) return;
+    
+    try {
+      const collectionService = CollectionService.getInstance();
+      await collectionService.createCollection(
+        selectedCollection.name,
+        selectedCollection.sounds.map((sound, index) => ({
+          sound_id: sound.id,
+          order_index: index,
+        }))
+      );
+      setIsCollectionModalVisible(false);
+      setSelectedCollection(null);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error saving collection:', error);
+      Alert.alert('Error', 'Failed to save collection');
     }
   };
 
   const handleSetActive = async (collectionId: string) => {
     try {
-      const soundService = SoundService.getInstance();
-      await soundService.setActiveCollection(collectionId);
-      
+      const collectionService = CollectionService.getInstance();
+      await collectionService.setActiveCollection(collectionId);
       setCollections(prev => prev.map(collection => ({
         ...collection,
         is_active: collection.id === collectionId,
       })));
     } catch (error) {
-      console.error('Error activating collection:', error);
-      Alert.alert('Error', 'Failed to activate collection');
+      console.error('Error setting active collection:', error);
+      Alert.alert('Error', 'Failed to set active collection');
     }
   };
 
-  const renderSoundCard = (sound: Sound, isActive?: boolean) => (
-    <Pressable 
-      key={sound.id} 
-      style={[styles.soundCard, isActive && styles.soundCardActive]}
-      onPress={() => {
-        // TODO: Add sound preview functionality
-        Alert.alert('Coming Soon', 'Sound preview will be available soon!');
-      }}
-    >
-      <View style={[styles.soundIcon, isActive && styles.soundIconActive]}>
-        <MaterialIcons 
-          name={
-            sound.category === 'attention' ? 'notifications' :
-            sound.category === 'training' ? 'pets' :
-            'music-note'
-          } 
-          size={24} 
-          color={isActive ? theme.colors.text.inverse : theme.colors.primary} 
-        />
-      </View>
-      <Text 
-        style={[styles.soundName, isActive && styles.soundNameActive]}
-        numberOfLines={1}
-      >
-        {sound.name}
-      </Text>
-    </Pressable>
-  );
+  const handleAddSounds = async (collectionId: string, soundIds: string[]) => {
+    try {
+      const collectionService = CollectionService.getInstance();
+      await collectionService.addSoundsToCollection(collectionId, soundIds);
+      // Refresh collections
+      const updatedCollections = await collectionService.getUserCollections();
+      setCollections(updatedCollections);
+    } catch (error) {
+      console.error('Error adding sounds:', error);
+      Alert.alert('Error', 'Failed to add sounds');
+    }
+  };
 
-  const renderEmptyCollection = () => (
-    <View style={styles.emptyContainer}>
-      <MaterialIcons name="library-music" size={48} color={theme.colors.text.secondary} />
-      <Text style={styles.emptyText}>No sounds in this collection</Text>
-      <Text style={styles.emptySubtext}>Tap + to add sounds</Text>
+  const getExistingSoundIds = (collectionId: string): string[] => {
+    const collection = collections.find(c => c.id === collectionId);
+    return collection?.collection_sounds.map(cs => cs.sound_id) || [];
+  };
+
+  const handlePreviewSound = async (sound: Sound) => {
+    try {
+      const soundService = SoundService.getInstance();
+      
+      if (previewingSound?.id === sound.id) {
+        if (isPlaying) {
+          await soundService.pauseSound(sound.id);
+          setIsPlaying(false);
+        } else {
+          await soundService.resumeSound(sound.id);
+          setIsPlaying(true);
+        }
+        return;
+      }
+
+      setPreviewingSound(sound);
+      await soundService.loadSound({
+        id: sound.id,
+        name: sound.name,
+        category: sound.category,
+        url: sound.url,
+        isPremium: sound.isPremium,
+      });
+      await soundService.playSound(sound.id);
+      setIsPlaying(true);
+
+      soundService.onPlaybackEnd(() => {
+        setIsPlaying(false);
+        setPreviewingSound(null);
+      });
+    } catch (error) {
+      console.error('Error previewing sound:', error);
+      Alert.alert('Error', 'Failed to preview sound');
+    }
+  };
+
+  const handleApplyFilters = (filters: string[]) => {
+    setActiveFilters(filters);
+    setIsFilterSheetVisible(false);
+  };
+
+  const handleSeeAllPress = () => {
+    setIsMarketplaceVisible(true);
+  };
+
+  const renderFeaturedSection = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Featured Collections</Text>
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        style={styles.featuredScroll}
+      >
+        {FEATURED_COLLECTIONS.map(collection => (
+          <Pressable
+            key={collection.id}
+            style={styles.featuredCard}
+            onPress={() => handleCollectionPress(collection)}
+          >
+            <Image 
+              source={collection.coverImage} 
+              style={styles.collectionImage}
+            />
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.8)']}
+              style={styles.cardGradient}
+            >
+              <View style={styles.cardContent}>
+                <Text style={styles.collectionName}>{collection.name}</Text>
+                <Text style={styles.collectionDescription}>
+                  {collection.description}
+                </Text>
+                <Text style={styles.soundCount}>
+                  {collection.soundCount} sounds
+                </Text>
+              </View>
+            </LinearGradient>
+          </Pressable>
+        ))}
+      </ScrollView>
     </View>
   );
 
-  const handleAddPress = () => {
+  const renderUserCollections = () => (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Your Collections</Text>
+        <Pressable 
+          style={styles.addButton}
+          onPress={() => setIsCreateModalVisible(true)}
+        >
+          <MaterialIcons name="add" size={24} color={theme.colors.primary} />
+        </Pressable>
+      </View>
+      
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        style={styles.collectionsScroll}
+      >
+        {collections.map(collection => (
+          <Pressable
+            key={collection.id}
+            style={[
+              styles.collectionCard,
+              collection.is_active && styles.activeCard
+            ]}
+            onPress={() => handleSetActive(collection.id)}
+          >
+            <MaterialIcons 
+              name={collection.is_active ? "folder-special" : "folder"} 
+              size={24} 
+              color={collection.is_active ? theme.colors.primary : theme.colors.text.secondary} 
+            />
+            <Text style={styles.collectionName}>{collection.name}</Text>
+            <Text style={styles.soundCount}>
+              {collection.collection_sounds.length} sounds
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
+  );
+
+  const renderPremiumView = () => (
+    <>
+      {/* Active Collection Card */}
+      <ActiveCollection
+        name={collections.find(c => c.is_active)?.name || 'Select a Collection'}
+        soundCount={collections.find(c => c.is_active)?.collection_sounds.length || 0}
+      />
+
+      {/* User Collections */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Your Collections</Text>
+          <Pressable 
+            style={styles.addButton}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setIsCreateModalVisible(true);
+            }}
+          >
+            <MaterialIcons name="add" size={24} color={theme.colors.primary} />
+          </Pressable>
+        </View>
+
+        {collections.length > 0 ? (
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.collectionsScroll}
+          >
+            {collections.map(collection => (
+              <Pressable
+                key={collection.id}
+                style={[
+                  styles.collectionCard,
+                  collection.is_active && styles.activeCard
+                ]}
+                onPress={() => handleSetActive(collection.id)}
+              >
+                <MaterialIcons 
+                  name={collection.is_active ? "folder-special" : "folder"} 
+                  size={24} 
+                  color={collection.is_active ? theme.colors.primary : theme.colors.text.secondary} 
+                />
+                <Text style={[
+                  styles.collectionName,
+                  { color: theme.colors.text.primary }
+                ]}>
+                  {collection.name}
+                </Text>
+                <Text style={[
+                  styles.soundCount,
+                  { color: theme.colors.text.secondary }
+                ]}>
+                  {collection.collection_sounds.length} sounds
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={styles.emptyState}>
+            <MaterialIcons 
+              name="library-music" 
+              size={48} 
+              color={theme.colors.text.secondary} 
+            />
+            <Text style={styles.emptyText}>
+              Create your first collection
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* Featured Collections */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Featured Collections</Text>
+          <Pressable 
+            style={styles.seeAllButton} 
+            onPress={handleSeeAllPress}
+          >
+            <Text style={styles.seeAllText}>See All</Text>
+            <MaterialIcons 
+              name="arrow-forward" 
+              size={20} 
+              color={theme.colors.primary} 
+            />
+          </Pressable>
+        </View>
+
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.featuredScroll}
+          decelerationRate="fast"
+          snapToInterval={280 + theme.spacing.md}
+        >
+          {FEATURED_COLLECTIONS.map(collection => (
+            <Pressable
+              key={collection.id}
+              style={styles.featuredCard}
+              onPress={() => handleCollectionPress(collection)}
+            >
+              <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.8)']}
+                style={styles.cardGradient}
+              >
+                <View style={styles.cardContent}>
+                  <Text style={styles.collectionName}>{collection.name}</Text>
+                  <Text style={styles.collectionDescription}>
+                    {collection.description}
+                  </Text>
+                  <Text style={styles.soundCount}>
+                    {collection.soundCount} sounds
+                  </Text>
+                </View>
+              </LinearGradient>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* All Sounds Grid */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>All Sounds</Text>
+        <SoundGrid
+          sounds={filteredSounds}
+          onSoundPress={handlePreviewSound}
+          isPremium={true}
+        />
+      </View>
+    </>
+  );
+
+  const handleFabPress = () => {
+    if (!isPremium) {
+      router.push('/profile/subscription');
+      return;
+    }
+
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
           options: ['Cancel', 'Record Sound', 'Upload Sound', 'New Collection'],
           cancelButtonIndex: 0,
-          userInterfaceStyle: 'light',
         },
         async (buttonIndex) => {
           if (buttonIndex === 0) return;
@@ -146,10 +637,10 @@ export default function SoundManagement() {
 
           switch (buttonIndex) {
             case 1:
-              Alert.alert('Coming Soon', 'Sound recording will be available soon!');
+              handleRecordSound();
               break;
             case 2:
-              Alert.alert('Coming Soon', 'Sound upload will be available soon!');
+              handleUploadSound();
               break;
             case 3:
               setIsCreateModalVisible(true);
@@ -161,11 +652,11 @@ export default function SoundManagement() {
       Alert.alert('Add New', 'Choose an option', [
         {
           text: 'Record Sound',
-          onPress: () => Alert.alert('Coming Soon', 'Sound recording will be available soon!'),
+          onPress: handleRecordSound,
         },
         {
           text: 'Upload Sound',
-          onPress: () => Alert.alert('Coming Soon', 'Sound upload will be available soon!'),
+          onPress: handleUploadSound,
         },
         {
           text: 'New Collection',
@@ -179,158 +670,153 @@ export default function SoundManagement() {
     }
   };
 
-  const handleAddSounds = (collectionId: string) => {
-    setSelectedCollectionId(collectionId);
-    setIsAddSoundsVisible(true);
+  const handleRecordSound = async () => {
+    // Will implement in next phase
+    Alert.alert('Coming Soon', 'Sound recording will be available soon!');
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadData();
+  const handleUploadSound = async () => {
+    // Will implement in next phase
+    Alert.alert('Coming Soon', 'Sound upload will be available soon!');
   };
 
-  const getExistingSoundIds = (collectionId: string): string[] => {
-    const collection = collections.find(c => c.id === collectionId);
-    return collection?.collection_sounds.map(cs => cs.sound_id) || [];
-  };
-
-  const handleRemoveSounds = async (collectionId: string, soundIds: string[]) => {
-    try {
-      const soundService = SoundService.getInstance();
-      await soundService.removeSoundsFromCollection(collectionId, soundIds);
-      await loadData(); // Refresh collections
-    } catch (error) {
-      console.error('Error removing sounds:', error);
-      Alert.alert('Error', 'Failed to remove sounds');
-    }
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <LoadingIndicator />
-        <Text style={styles.loadingText}>Loading your sounds...</Text>
+  const renderBasicView = () => (
+    <>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Basic Sounds</Text>
+        <SoundGrid
+          sounds={DEFAULT_SOUNDS}
+          onSoundPress={handlePreviewSound}
+          isPremium={false}
+        />
       </View>
-    );
-  }
+      <BlurView intensity={80} tint="light" style={styles.premiumPreview}>
+        <View style={styles.premiumContent}>
+          <MaterialIcons name="star" size={32} color={theme.colors.warning} />
+          <View style={styles.headerContent}>
+            <Text style={styles.premiumTitle}>Unlock Premium</Text>
+            <Text style={styles.premiumSubtitle}>
+              Get unlimited access to all premium features
+            </Text>
+          </View>
+          
+          <View style={styles.premiumFeatures}>
+            {PREMIUM_FEATURES.map(feature => (
+              <View key={feature.id} style={styles.premiumFeature}>
+                <View style={styles.featureHeader}>
+                  <View style={styles.iconContainer}>
+                    <MaterialIcons 
+                      name={feature.icon} 
+                      size={20} 
+                      color={theme.colors.warning} 
+                    />
+                  </View>
+                  <Text style={styles.featureTitle}>{feature.title}</Text>
+                </View>
+                <Text style={styles.featureDescription}>{feature.description}</Text>
+              </View>
+            ))}
+          </View>
+
+          <Pressable 
+            style={styles.upgradeButton}
+            onPress={() => setIsSubscriptionModalVisible(true)}
+          >
+            <Text style={styles.upgradeText}>Upgrade Now</Text>
+          </Pressable>
+        </View>
+      </BlurView>
+    </>
+  );
 
   return (
     <View style={styles.container}>
+      <Header 
+        isPremium={isPremium} 
+        onFilterPress={() => setIsFilterSheetVisible(true)}
+      />
+      
       <ScrollView 
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
+        style={styles.content}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={onRefresh}
+            onRefresh={handleRefresh}
             tintColor={theme.colors.primary}
-            colors={[theme.colors.primary]}
           />
         }
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>Sounds</Text>
-          <Text style={styles.subtitle}>Create the perfect mix for your pet</Text>
-        </View>
-
-        {/* Active Collection Section */}
-        {collections.find(c => c.is_active) && (
-          <View style={styles.activeSection}>
-            <View style={styles.sectionHeader}>
-              <MaterialIcons name="play-circle-filled" size={24} color={theme.colors.primary} />
-              <Text style={styles.sectionTitle}>Active Collection</Text>
-            </View>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              style={styles.soundsScroll}
-              contentContainerStyle={styles.soundsContent}
-            >
-              {collections
-                .find(c => c.is_active)
-                ?.collection_sounds?.map(({ sound }) => renderSoundCard(sound, true)) || []}
-            </ScrollView>
-          </View>
+        {isPremium ? (
+          renderPremiumView()
+        ) : (
+          renderBasicView()
         )}
-
-        {/* Collections Grid */}
-        <View style={styles.collectionsSection}>
-          <View style={styles.sectionHeader}>
-            <MaterialIcons name="library-music" size={24} color={theme.colors.primary} />
-            <Text style={styles.sectionTitle}>Your Collections</Text>
-          </View>
-          {(collections || []).map(collection => (
-            <Pressable 
-              key={collection.id} 
-              style={styles.collectionCard}
-              onPress={() => handleSetActive(collection.id)}
-            >
-              <View style={styles.collectionInfo}>
-                <Text style={styles.collectionName}>{collection.name}</Text>
-                <Text style={styles.soundCount}>
-                  {collection.collection_sounds?.length || 0} sounds
-                </Text>
-              </View>
-              <View style={styles.collectionActions}>
-                <Pressable
-                  style={styles.addSoundsButton}
-                  onPress={() => handleAddSounds(collection.id)}
-                >
-                  <MaterialIcons name="add" size={20} color={theme.colors.primary} />
-                </Pressable>
-                {collection.is_active && (
-                  <View style={styles.activeIndicator}>
-                    <MaterialIcons name="check-circle" size={20} color={theme.colors.primary} />
-                  </View>
-                )}
-              </View>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Default Sounds Section */}
-        <View style={styles.defaultSection}>
-          <View style={styles.sectionHeader}>
-            <MaterialIcons name="music-note" size={24} color={theme.colors.primary} />
-            <Text style={styles.sectionTitle}>Default Sounds</Text>
-          </View>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.soundsScroll}
-            contentContainerStyle={styles.soundsContent}
-          >
-            {(defaultSounds || []).map(sound => renderSoundCard(sound))}
-          </ScrollView>
-        </View>
       </ScrollView>
 
-      {/* Floating Action Button */}
-      <Pressable 
-        style={styles.fab}
-        onPress={handleAddPress}
-      >
-        <MaterialIcons name="add" size={28} color={theme.colors.text.inverse} />
-      </Pressable>
+      {isPremium && (
+        <Pressable 
+          style={[styles.fab, styles.fabPremium]}
+          onPress={handleFabPress}
+        >
+          <MaterialIcons 
+            name="add" 
+            size={28} 
+            color="#FFF" 
+          />
+        </Pressable>
+      )}
 
       <CreateCollectionModal
         visible={isCreateModalVisible}
         onClose={() => setIsCreateModalVisible(false)}
-        onAdd={(collection) => {
-          setCollections(prev => [...prev, collection]);
-          setIsCreateModalVisible(false);
-        }}
-        defaultSounds={defaultSounds}
+        onCreate={handleCreateCollection}
+        sounds={sounds}
       />
 
       <AddSoundsModal
         visible={isAddSoundsVisible}
         onClose={() => setIsAddSoundsVisible(false)}
-        collectionId={selectedCollectionId!}
-        defaultSounds={defaultSounds}
-        existingSounds={getExistingSoundIds(selectedCollectionId!)}
-        onAdd={loadData}
-        onRemove={(soundIds) => handleRemoveSounds(selectedCollectionId!, soundIds)}
+        onAdd={(soundIds) => handleAddSounds(selectedCollectionId!, soundIds)}
+        sounds={sounds}
+        existingSoundIds={selectedCollectionId ? getExistingSoundIds(selectedCollectionId) : []}
+      />
+
+      {previewingSound && (
+        <SoundPreviewPlayer
+          sound={previewingSound}
+          isPlaying={isPlaying}
+          onPlayPause={handlePlayPause}
+          onClose={() => {
+            setPreviewingSound(null);
+            setIsPlaying(false);
+          }}
+        />
+      )}
+
+      <CollectionModal
+        visible={isCollectionModalVisible}
+        onClose={() => {
+          setIsCollectionModalVisible(false);
+          setSelectedCollection(null);
+        }}
+        onSave={handleSaveCollection}
+        collection={selectedCollection}
+        isPremium={isPremium}
+      />
+
+      <MarketplaceModal
+        visible={isMarketplaceVisible}
+        onClose={() => setIsMarketplaceVisible(false)}
+        onCollectionPress={handleCollectionPress}
+        isPremium={isPremium}
+        collections={FEATURED_COLLECTIONS}
+      />
+
+      <SubscriptionModal
+        visible={isSubscriptionModalVisible}
+        onClose={() => setIsSubscriptionModalVisible(false)}
+        currentTier="basic"
+        loading={upgrading}
       />
     </View>
   );
@@ -341,152 +827,65 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.background,
   },
-  scrollView: {
+  content: {
     flex: 1,
   },
-  header: {
-    padding: theme.spacing.lg,
-    paddingTop: theme.spacing.xl,
-  },
-  title: {
-    fontSize: 34,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginBottom: theme.spacing.xs,
-  },
-  subtitle: {
-    fontSize: theme.typography.body.fontSize,
-    color: theme.colors.text.secondary,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
-    paddingHorizontal: theme.spacing.lg,
-  },
-  sectionTitle: {
-    fontSize: theme.typography.h2.fontSize,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-  },
-  activeSection: {
-    marginVertical: theme.spacing.lg,
-  },
-  collectionsSection: {
-    marginVertical: theme.spacing.lg,
-  },
-  defaultSection: {
-    marginVertical: theme.spacing.lg,
-  },
-  collectionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: theme.spacing.lg,
-    marginHorizontal: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.lg,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  collectionInfo: {
+  loadingContainer: {
     flex: 1,
-  },
-  collectionName: {
-    fontSize: theme.typography.body.fontSize,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: theme.spacing.xs,
-  },
-  soundCount: {
-    fontSize: theme.typography.caption.fontSize,
-    color: theme.colors.text.secondary,
-  },
-  collectionActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.md,
-  },
-  addSoundsButton: {
-    padding: theme.spacing.sm,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.surface,
-  },
-  activeIndicator: {
-    padding: theme.spacing.xs,
-  },
-  soundCard: {
-    alignItems: 'center',
-    padding: theme.spacing.md,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.lg,
-    marginRight: theme.spacing.md,
-    width: 100,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  soundCardActive: {
-    backgroundColor: theme.colors.primary + '10',
-  },
-  soundIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: theme.colors.background,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: theme.spacing.sm,
-  },
-  soundIconActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  soundName: {
-    fontSize: theme.typography.caption.fontSize,
-    color: theme.colors.text.primary,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  soundNameActive: {
-    color: theme.colors.primary,
-  },
-  soundsScroll: {
-    flexGrow: 0,
-  },
-  soundsContent: {
-    paddingHorizontal: theme.spacing.md,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    padding: theme.spacing.xl,
-  },
-  emptyText: {
-    fontSize: theme.typography.body.fontSize,
-    color: theme.colors.text.secondary,
-    marginTop: theme.spacing.md,
-  },
-  emptySubtext: {
-    fontSize: theme.typography.caption.fontSize,
-    color: theme.colors.text.secondary,
-    marginTop: theme.spacing.xs,
+    backgroundColor: theme.colors.background,
   },
   loadingText: {
     fontSize: theme.typography.body.fontSize,
     color: theme.colors.text.secondary,
     marginTop: theme.spacing.md,
+  },
+  premiumPreview: {
+    marginHorizontal: theme.spacing.lg,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.lg,
+    borderRadius: theme.borderRadius.lg,
+    overflow: 'hidden',
+  },
+  premiumContent: {
+    padding: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    alignItems: 'center',
+    gap: theme.spacing.md,
+  },
+  premiumTitle: {
+    fontSize: theme.typography.h2.fontSize,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginTop: theme.spacing.xs,
+    textAlign: 'center',
+  },
+  premiumSubtitle: {
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: theme.spacing.sm,
+  },
+  section: {
+    padding: theme.spacing.lg,
+    paddingBottom: 0,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  sectionTitle: {
+    fontSize: theme.typography.h2.fontSize,
+    fontWeight: theme.typography.h2.fontWeight,
+    color: theme.colors.text.primary,
+  },
+  sectionSubtitle: {
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.lg,
   },
   fab: {
     position: 'absolute',
@@ -498,19 +897,198 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-    elevation: 8,
+    ...getShadow('large'),
   },
-  loadingContainer: {
+  fabPremium: {
+    backgroundColor: theme.colors.primary,
+  },
+  fabBasic: {
+    backgroundColor: theme.colors.warning,
+  },
+  collectionCard: {
+    width: 160,
+    padding: theme.spacing.md,
+    marginRight: theme.spacing.md,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface,
+    ...getShadow('small'),
+    gap: theme.spacing.xs,
+  },
+  activeCard: {
+    backgroundColor: theme.colors.primary + '10',
+    borderColor: theme.colors.primary,
+    borderWidth: 1,
+  },
+  collectionName: {
+    fontSize: theme.typography.h2.fontSize,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  soundCount: {
+    fontSize: theme.typography.caption.fontSize,
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  seeAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  seeAllText: {
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.primary,
+    marginRight: theme.spacing.sm,
+  },
+  packsScroll: {
+    padding: theme.spacing.md,
+  },
+  packCard: {
+    padding: theme.spacing.md,
+    borderWidth: 2,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    marginRight: theme.spacing.md,
+  },
+  packImageContainer: {
+    position: 'relative',
+    width: 150,
+    height: 150,
+    borderRadius: theme.borderRadius.md,
+    overflow: 'hidden',
+  },
+  packImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: theme.borderRadius.md,
+  },
+  packGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 50,
+    borderRadius: theme.borderRadius.md,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  includedText: {
+    fontSize: theme.typography.body.fontSize,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  packName: {
+    fontSize: theme.typography.body.fontSize,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginTop: theme.spacing.sm,
+  },
+  packDescription: {
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.text.secondary,
+  },
+  premiumPrice: {
+    fontSize: theme.typography.h2.fontSize,
+    fontWeight: '700',
+    color: theme.colors.warning,
+  },
+  premiumFeatures: {
+    width: '100%',
+    gap: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+  },
+  premiumFeature: {
+    gap: 4,
+  },
+  featureHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  iconContainer: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: theme.colors.warning + '15',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  featureTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  featureDescription: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    lineHeight: 16,
+    marginLeft: 32,
+  },
+  upgradeButton: {
+    width: '100%',
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.warning,
+    borderRadius: theme.borderRadius.full,
+    alignItems: 'center',
+    ...getShadow('medium'),
+  },
+  upgradeText: {
+    fontSize: theme.typography.body.fontSize,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  featuredScroll: {
+    marginHorizontal: -theme.spacing.lg,
+    paddingHorizontal: theme.spacing.lg,
+  },
+  featuredCard: {
+    width: 280,
+    height: 160,
+    marginRight: theme.spacing.md,
+    borderRadius: theme.borderRadius.lg,
+    overflow: 'hidden',
+    ...getShadow('medium'),
+  },
+  collectionImage: {
+    width: '100%',
+    height: '100%',
+  },
+  cardGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '60%',
+    padding: theme.spacing.md,
+    justifyContent: 'flex-end',
+  },
+  cardContent: {
+    gap: theme.spacing.xs,
+  },
+  collectionDescription: {
+    fontSize: theme.typography.caption.fontSize,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  addButton: {
+    width: 40,
+    height: 40,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.primary + '10',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  collectionsScroll: {
+    marginHorizontal: -theme.spacing.lg,
+    paddingHorizontal: theme.spacing.lg,
+  },
+  emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: theme.colors.background,
+  },
+  emptyText: {
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing.sm,
+  },
+  headerContent: {
+    gap: theme.spacing.sm,
   },
 }); 

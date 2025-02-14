@@ -1,10 +1,14 @@
 export interface Sound {
   id: string;
   name: string;
-  icon: keyof typeof import('@expo/vector-icons/MaterialIcons').glyphMap;
+  icon: string;
   category: 'attention' | 'reward' | 'training';
   uri: string;
   isPremium: boolean;
+  stats?: {
+    rating: number;
+    downloads: number;
+  };
 }
 
 export const mockSounds: Sound[] = [
