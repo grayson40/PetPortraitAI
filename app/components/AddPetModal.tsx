@@ -4,58 +4,33 @@ import { useState } from 'react';
 import { theme } from '../styles/theme';
 import { API_CONFIG } from '../constants/config';
 import { getSupabase } from '../services/supabase';
+import { UserService } from '../services/user';
 
 interface AddPetModalProps {
   visible: boolean;
   onClose: () => void;
-  onAdd: (pet: { id: string; name: string; type: string }) => void;
+  onAdd: (petData: { name: string; type: string }) => Promise<void>;
+  loading?: boolean;
 }
 
-export default function AddPetModal({ visible, onClose, onAdd }: AddPetModalProps) {
+export default function AddPetModal({ visible, onClose, onAdd, loading = false }: AddPetModalProps) {
   const [name, setName] = useState('');
   const [type, setType] = useState('');
-  const [loading, setLoading] = useState(false);
 
   const handleAdd = async () => {
     if (!name.trim() || !type.trim()) return;
 
-    setLoading(true);
     try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
-
-      const response = await fetch(`${API_CONFIG.url}/pets`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: user.id,
-          name: name.trim(),
-          type: type.trim(),
-        }),
+      await onAdd({
+        name: name.trim(),
+        type: type.trim(),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to add pet');
-      }
-
-      const newPet = await response.json();
-      
-      if (!newPet || !newPet.name) {
-        throw new Error('Invalid pet data received from server');
-      }
-
-      onAdd(newPet);
       setName('');
       setType('');
       onClose();
     } catch (error) {
-      console.error('Error adding pet:', error);
-      Alert.alert('Error', 'Failed to add pet');
-    } finally {
-      setLoading(false);
+      // Error handling is done by parent
+      console.error('Error in AddPetModal:', error);
     }
   };
 

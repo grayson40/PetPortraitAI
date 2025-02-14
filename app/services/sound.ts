@@ -1,4 +1,7 @@
 import { Audio } from 'expo-av';
+import { CacheService } from './cache';
+import { getSupabase } from './supabase';
+import { API_CONFIG } from '../constants/config';
 
 interface SoundEffect {
   id: string;
@@ -8,11 +11,52 @@ interface SoundEffect {
   isPremium: boolean;
 }
 
-class SoundService {
+interface Sound {
+  id: string;
+  name: string;
+  url: string;
+  category: string;
+  description: string;
+  created_at: string;
+}
+
+interface SoundCollection {
+  id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  user_id: string;
+  collection_sounds: Array<{
+    sound_id: string;
+    sound_type: 'default' | 'marketplace' | 'user';
+    order_index: number;
+    sound: Sound;
+  }>;
+}
+
+const CACHE_KEYS = {
+  DEFAULT_SOUNDS: 'default_sounds',
+  USER_COLLECTIONS: 'user_collections',
+};
+
+export class SoundService {
+  private static instance: SoundService;
+  private cacheService: CacheService;
   private sounds: Map<string, Audio.Sound> = new Map();
   private volume: number = 0.8; // Default volume
   private effectivenessScores: Map<string, number> = new Map();
   private currentlyPlaying: Audio.Sound | null = null;
+
+  private constructor() {
+    this.cacheService = CacheService.getInstance();
+  }
+
+  static getInstance(): SoundService {
+    if (!SoundService.instance) {
+      SoundService.instance = new SoundService();
+    }
+    return SoundService.instance;
+  }
 
   async initialize() {
     await Audio.setAudioModeAsync({
@@ -93,6 +137,134 @@ class SoundService {
     }
     this.sounds.clear();
   }
+
+  async getDefaultSounds(): Promise<Sound[]> {
+    try {
+      const cached = await this.cacheService.get<Sound[]>(CACHE_KEYS.DEFAULT_SOUNDS);
+      if (cached) return cached;
+
+      const response = await fetch(`${API_CONFIG.url}/sounds/default`);
+      if (!response.ok) throw new Error('Failed to load default sounds');
+
+      const sounds = await response.json();
+      await this.cacheService.set(CACHE_KEYS.DEFAULT_SOUNDS, sounds);
+
+      return sounds;
+    } catch (error) {
+      console.error('Error loading default sounds:', error);
+      throw error;
+    }
+  }
+
+  async getUserCollections(): Promise<SoundCollection[]> {
+    try {
+      const cached = await this.cacheService.get<SoundCollection[]>(CACHE_KEYS.USER_COLLECTIONS);
+      if (cached) return cached;
+
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      const response = await fetch(`${API_CONFIG.url}/sounds/collections/${user.id}`);
+      if (!response.ok) throw new Error('Failed to load collections');
+
+      const collections = await response.json();
+      await this.cacheService.set(CACHE_KEYS.USER_COLLECTIONS, collections);
+
+      return collections;
+    } catch (error) {
+      console.error('Error loading collections:', error);
+      throw error;
+    }
+  }
+
+  async createCollection(name: string, sounds: Array<{ sound_id: string; sound_type: 'default' | 'marketplace' | 'user'; order_index: number }>) {
+    try {
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      const response = await fetch(`${API_CONFIG.url}/sounds/collections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          name,
+          is_active: false,
+          collection_sounds: sounds,
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to create collection');
+
+      const newCollection = await response.json();
+      await this.cacheService.remove(CACHE_KEYS.USER_COLLECTIONS);
+
+      return newCollection;
+    } catch (error) {
+      console.error('Error creating collection:', error);
+      throw error;
+    }
+  }
+
+  async setActiveCollection(collectionId: string): Promise<void> {
+    try {
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id }),
+      });
+
+      if (!response.ok) throw new Error('Failed to activate collection');
+
+      await this.cacheService.remove(CACHE_KEYS.USER_COLLECTIONS);
+    } catch (error) {
+      console.error('Error activating collection:', error);
+      throw error;
+    }
+  }
+
+  async addSoundsToCollection(collectionId: string, sounds: Array<{ sound_id: string; sound_type: 'default' | 'marketplace' | 'user' }>) {
+    try {
+      const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/sounds`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sounds }),
+      });
+
+      if (!response.ok) throw new Error('Failed to add sounds to collection');
+
+      await this.cacheService.remove(CACHE_KEYS.USER_COLLECTIONS);
+    } catch (error) {
+      console.error('Error adding sounds to collection:', error);
+      throw error;
+    }
+  }
+
+  async removeSoundsFromCollection(collectionId: string, soundIds: string[]) {
+    try {
+      const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/sounds`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sound_ids: soundIds }),
+      });
+
+      if (!response.ok) throw new Error('Failed to remove sounds from collection');
+
+      await this.cacheService.remove(CACHE_KEYS.USER_COLLECTIONS);
+    } catch (error) {
+      console.error('Error removing sounds from collection:', error);
+      throw error;
+    }
+  }
+
+  async clearCache(): Promise<void> {
+    await Promise.all([
+      this.cacheService.remove(CACHE_KEYS.DEFAULT_SOUNDS),
+      this.cacheService.remove(CACHE_KEYS.USER_COLLECTIONS),
+    ]);
+  }
 }
 
-export const soundService = new SoundService(); 
+// export const soundService = SoundService.getInstance(); 

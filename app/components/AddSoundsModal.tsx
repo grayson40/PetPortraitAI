@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { theme } from '../styles/theme';
 import { API_CONFIG } from '../constants/config';
 import { getSupabase } from '../services/supabase';
+import { SoundService } from '../services/sound';
 
 interface Sound {
   id: string;
@@ -19,49 +20,51 @@ interface AddSoundsModalProps {
   onClose: () => void;
   collectionId: string;
   defaultSounds: Sound[];
-  onAdd: () => void; // Callback to refresh collections
+  existingSounds: string[]; // Array of sound IDs already in collection
+  onAdd: () => void;
+  onRemove: (soundIds: string[]) => Promise<void>;
 }
 
-export default function AddSoundsModal({ visible, onClose, collectionId, defaultSounds, onAdd }: AddSoundsModalProps) {
-  const [selectedSounds, setSelectedSounds] = useState<Set<string>>(new Set());
+export default function AddSoundsModal({ 
+  visible, 
+  onClose, 
+  collectionId, 
+  defaultSounds,
+  existingSounds = [],
+  onAdd,
+  onRemove,
+}: AddSoundsModalProps) {
+  const [selectedSounds, setSelectedSounds] = useState<Set<string>>(() => new Set(existingSounds));
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const handleAdd = async () => {
-    if (selectedSounds.size === 0) return;
-
+  const handleSave = async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
+      // Find sounds to add and remove
+      const soundsToAdd = Array.from(selectedSounds)
+        .filter(id => !existingSounds.includes(id));
+      const soundsToRemove = existingSounds
+        .filter(id => !selectedSounds.has(id));
 
-      const soundsToAdd = Array.from(selectedSounds).map((soundId, index) => ({
-        sound_id: soundId,
-        sound_type: 'default' as const,
-        order_index: index,
-        // sound: defaultSounds.find(s => s.id === soundId)!
-      }));
-
-      const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/sounds`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sounds: soundsToAdd,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to add sounds');
+      if (soundsToAdd.length > 0) {
+        const soundService = SoundService.getInstance();
+        await soundService.addSoundsToCollection(collectionId, soundsToAdd.map((soundId, index) => ({
+          sound_id: soundId,
+          sound_type: 'default',
+          order_index: existingSounds.length + index,
+        })));
       }
 
-      onAdd();
-      setSelectedSounds(new Set());
+      if (soundsToRemove.length > 0) {
+        await onRemove(soundsToRemove);
+      }
+
+      onAdd(); // Refresh the collections
       onClose();
     } catch (error) {
-      console.error('Error adding sounds:', error);
-      Alert.alert('Error', 'Failed to add sounds');
+      console.error('Error updating sounds:', error);
+      Alert.alert('Error', 'Failed to update sounds');
     } finally {
       setLoading(false);
     }
@@ -84,6 +87,12 @@ export default function AddSoundsModal({ visible, onClose, collectionId, default
     sound.category.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const hasChanges = () => {
+    const added = Array.from(selectedSounds).some(id => !existingSounds.includes(id));
+    const removed = existingSounds.some(id => !selectedSounds.has(id));
+    return added || removed;
+  };
+
   return (
     <Modal
       visible={visible}
@@ -98,19 +107,27 @@ export default function AddSoundsModal({ visible, onClose, collectionId, default
         >
           <Pressable style={styles.modalContent} onPress={e => e.stopPropagation()}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Sounds</Text>
+              <Text style={styles.modalTitle}>Manage Sounds</Text>
               <Pressable onPress={onClose}>
                 <MaterialIcons name="close" size={24} color={theme.colors.text.primary} />
               </Pressable>
             </View>
 
-            <TextInput
-              style={styles.input}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Search sounds..."
-              placeholderTextColor={theme.colors.text.secondary}
-            />
+            <View style={styles.searchContainer}>
+              <MaterialIcons name="search" size={20} color={theme.colors.text.secondary} />
+              <TextInput
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search sounds..."
+                placeholderTextColor={theme.colors.text.secondary}
+              />
+              {searchQuery ? (
+                <Pressable onPress={() => setSearchQuery('')}>
+                  <MaterialIcons name="clear" size={20} color={theme.colors.text.secondary} />
+                </Pressable>
+              ) : null}
+            </View>
 
             <ScrollView style={styles.soundsList}>
               {filteredSounds.map(sound => (
@@ -131,6 +148,12 @@ export default function AddSoundsModal({ visible, onClose, collectionId, default
                     <Text style={styles.soundName}>{sound.name}</Text>
                     <Text style={styles.soundCategory}>{sound.category}</Text>
                   </View>
+                  <Pressable 
+                    style={styles.playButton}
+                    onPress={() => {/* TODO: Add preview functionality */}}
+                  >
+                    <MaterialIcons name="play-arrow" size={20} color={theme.colors.primary} />
+                  </Pressable>
                 </Pressable>
               ))}
             </ScrollView>
@@ -138,15 +161,15 @@ export default function AddSoundsModal({ visible, onClose, collectionId, default
             <Pressable 
               style={[
                 styles.button, 
-                (selectedSounds.size === 0 || loading) && styles.buttonDisabled
+                (!hasChanges() || loading) && styles.buttonDisabled
               ]}
-              onPress={handleAdd}
-              disabled={selectedSounds.size === 0 || loading}
+              onPress={handleSave}
+              disabled={!hasChanges() || loading}
             >
               {loading ? (
                 <ActivityIndicator color={theme.colors.text.inverse} />
               ) : (
-                <Text style={styles.buttonText}>Add Selected Sounds</Text>
+                <Text style={styles.buttonText}>Save Changes</Text>
               )}
             </Pressable>
           </Pressable>
@@ -231,5 +254,24 @@ const styles = StyleSheet.create({
     color: theme.colors.text.inverse,
     fontSize: theme.typography.body.fontSize,
     fontWeight: '600',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    padding: theme.spacing.sm,
+    borderRadius: theme.borderRadius.md,
+    gap: theme.spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.text.primary,
+    padding: theme.spacing.xs,
+  },
+  playButton: {
+    padding: theme.spacing.sm,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.primary + '10',
   },
 }); 

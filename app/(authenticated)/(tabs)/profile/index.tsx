@@ -10,6 +10,7 @@ import LoadingIndicator from '../../../components/LoadingIndicator';
 import AddPetModal from '../../../components/AddPetModal';
 import PetDetailsModal from '../../../components/PetDetailsModal';
 import { API_CONFIG } from '../../../constants/config';
+import { UserService } from '../../../services/user';
 
 const { width } = Dimensions.get('window');
 const PHOTO_SIZE = width / 4 - theme.spacing.sm * 2;
@@ -31,6 +32,7 @@ interface UserProfile {
     name: string;
     sounds_count: number;
   };
+  sound_volume: number;
 }
 
 interface SoundCollection {
@@ -53,30 +55,23 @@ export default function Profile() {
   const [soundVolume, setSoundVolume] = useState(80);
   const [isUpgradeModalVisible, setIsUpgradeModalVisible] = useState(false);
 
-  useEffect(() => {
-    const loadData = async () => {
-      await Promise.all([loadProfile(), loadSoundSettings()]);
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const userService = UserService.getInstance();
+      
+      const profileData = await userService.getProfile();
+
+      setProfile(profileData);
+      setSoundVolume(profileData.sound_volume);
+
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 500,
         useNativeDriver: true,
       }).start();
-    };
-    loadData();
-  }, []);
-
-  const loadProfile = async () => {
-    try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
-
-      const response = await fetch(`${API_CONFIG.url}/users/${user.id}`);
-      if (!response.ok) throw new Error('Failed to load profile');
-
-      const data = await response.json();
-      setProfile(data);
     } catch (error) {
-      console.error('Error loading profile:', error);
+      console.error('Error loading data:', error);
       Alert.alert('Error', 'Failed to load profile');
     } finally {
       setLoading(false);
@@ -84,17 +79,19 @@ export default function Profile() {
     }
   };
 
-  const loadSoundSettings = async () => {
-    try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
+  useEffect(() => {
+    loadData();
+  }, []);
 
-      const response = await fetch(`${API_CONFIG.url}/users/${user.id}/settings`);
-      const data = await response.json();
-      
-      setSoundVolume(data.sound_volume);
+  const handleRefresh = async () => {
+    try {
+      setRefreshing(true);
+      const userService = UserService.getInstance();
+      await userService.clearCache();
+      await loadData();
     } catch (error) {
-      console.error('Error loading sound settings:', error);
+      console.error('Error refreshing:', error);
+      Alert.alert('Error', 'Failed to refresh data');
     }
   };
 
@@ -129,25 +126,25 @@ export default function Profile() {
     );
   };
 
-  const handleAddPet = async (newPet: Pet) => {
+  const handleAddPet = async (petData: { name: string; type: string }) => {
     try {
-      if (!newPet || !newPet.name) {
-        throw new Error('Invalid pet data');
-      }
-
+      const userService = UserService.getInstance();
+      const newPet = await userService.addPet(petData);
+      
+      // Update local state with new pet
       setProfile(prev => {
         if (!prev) return prev;
         return {
           ...prev,
-          pets: [...(prev.pets || []), newPet],
+          pets: [...prev.pets, newPet],
         };
       });
 
-      setIsAddPetModalVisible(false);
-      Alert.alert('Success', `${newPet.name} has been added to your pets!`);
+      Alert.alert('Success', `${petData.name} has been added to your pets!`);
     } catch (error) {
       console.error('Error adding pet:', error);
       Alert.alert('Error', 'Failed to add pet');
+      throw error; // Re-throw to prevent modal from closing
     }
   };
 
@@ -206,6 +203,8 @@ export default function Profile() {
     });
   };
 
+  console.log(profile);
+
   const handleApiCall = async () => {
     const response = await fetch(`${API_CONFIG.url}/users`, {
       method: 'POST',
@@ -248,7 +247,10 @@ export default function Profile() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <View style={styles.loadingContent}>
+          <LoadingIndicator />
+          <Text style={styles.loadingText}>Loading your profile...</Text>
+        </View>
       </View>
     );
   }
@@ -260,10 +262,7 @@ export default function Profile() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              loadProfile();
-            }}
+            onRefresh={handleRefresh}
           />
         }
       >
@@ -620,8 +619,17 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  loadingContent: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: theme.spacing.md,
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.text.primary,
   },
   addButton: {
     backgroundColor: theme.colors.primary,

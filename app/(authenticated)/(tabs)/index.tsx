@@ -7,6 +7,8 @@ import { API_CONFIG } from '../../constants/config';
 import * as Haptics from 'expo-haptics';
 import CreateCollectionModal from '../../components/CreateCollectionModal';
 import AddSoundsModal from '../../components/AddSoundsModal';
+import LoadingIndicator from '../../components/LoadingIndicator';
+import { SoundService } from '../../services/sound';
 
 interface Sound {
   id: string;
@@ -46,29 +48,27 @@ export default function SoundManagement() {
 
   const loadData = async () => {
     try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
-
-      const [defaultRes, collectionsRes] = await Promise.all([
-        fetch(`${API_CONFIG.url}/sounds/default`),
-        fetch(`${API_CONFIG.url}/sounds/collections/${user.id}`)
+      const soundService = SoundService.getInstance();
+      setLoading(true);
+      
+      const [defaultSounds, collections] = await Promise.all([
+        soundService.getDefaultSounds(),
+        soundService.getUserCollections(),
       ]);
 
-      if (!defaultRes.ok || !collectionsRes.ok) {
-        throw new Error('Failed to load sounds data');
-      }
+      setDefaultSounds(defaultSounds);
+      setCollections(collections);
 
-      const defaultData = await defaultRes.json();
-      const collectionsData = await collectionsRes.json();
-
-      console.log(defaultData);
-      console.log(collectionsData);
-
-      setDefaultSounds(defaultData || []);
-      setCollections(collectionsData || []);
-
-      if (!collectionsData?.length) {
-        await createDefaultCollection(user.id, defaultData);
+      if (!collections?.length) {
+        const defaultCollection = await soundService.createCollection(
+          'Default Collection',
+          defaultSounds.map((sound, index) => ({
+            sound_id: sound.id,
+            sound_type: 'default',
+            order_index: index,
+          }))
+        );
+        setCollections([defaultCollection]);
       }
     } catch (error) {
       console.error('Error loading sounds:', error);
@@ -79,51 +79,11 @@ export default function SoundManagement() {
     }
   };
 
-  const createDefaultCollection = async (userId: string, defaultSounds: Sound[]) => {
-    try {
-      const response = await fetch(`${API_CONFIG.url}/sounds/collections`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          name: 'Default Collection',
-          is_active: true,
-          collection_sounds: defaultSounds.map((sound, index) => ({
-            sound_id: sound.id,
-            sound_type: 'default',
-            order_index: index,
-            sound: sound
-          }))
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to create collection');
-
-      const newCollection = await response.json();
-      setCollections([newCollection]);
-    } catch (error) {
-      console.error('Error creating default collection:', error);
-    }
-  };
-
-
   const handleSetActive = async (collectionId: string) => {
     try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
-
-      const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/activate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user_id: user.id }),
-      });
-
-      if (!response.ok) throw new Error('Failed to activate collection');
-
+      const soundService = SoundService.getInstance();
+      await soundService.setActiveCollection(collectionId);
+      
       setCollections(prev => prev.map(collection => ({
         ...collection,
         is_active: collection.id === collectionId,
@@ -229,10 +189,26 @@ export default function SoundManagement() {
     await loadData();
   };
 
+  const getExistingSoundIds = (collectionId: string): string[] => {
+    const collection = collections.find(c => c.id === collectionId);
+    return collection?.collection_sounds.map(cs => cs.sound_id) || [];
+  };
+
+  const handleRemoveSounds = async (collectionId: string, soundIds: string[]) => {
+    try {
+      const soundService = SoundService.getInstance();
+      await soundService.removeSoundsFromCollection(collectionId, soundIds);
+      await loadData(); // Refresh collections
+    } catch (error) {
+      console.error('Error removing sounds:', error);
+      Alert.alert('Error', 'Failed to remove sounds');
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <LoadingIndicator />
         <Text style={styles.loadingText}>Loading your sounds...</Text>
       </View>
     );
@@ -352,7 +328,9 @@ export default function SoundManagement() {
         onClose={() => setIsAddSoundsVisible(false)}
         collectionId={selectedCollectionId!}
         defaultSounds={defaultSounds}
+        existingSounds={getExistingSoundIds(selectedCollectionId!)}
         onAdd={loadData}
+        onRemove={(soundIds) => handleRemoveSounds(selectedCollectionId!, soundIds)}
       />
     </View>
   );
