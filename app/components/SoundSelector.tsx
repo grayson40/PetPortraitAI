@@ -12,13 +12,15 @@ interface SoundSelectorProps {
   selectedSound: Sound | null;
   onSelectSound: (sound: Sound) => void;
   isPlaying: boolean;
+  userTier: 'basic' | 'premium';
 }
 
 export default function SoundSelector({ 
   sounds, 
   selectedSound, 
   onSelectSound,
-  isPlaying
+  isPlaying,
+  userTier
 }: SoundSelectorProps) {
   return (
     <BlurView intensity={20} style={styles.container}>
@@ -35,7 +37,8 @@ export default function SoundSelector({
               style={[
                 styles.soundButton,
                 isSelected && styles.selectedSound,
-                isSelected && isPlaying && styles.playingSound
+                isSelected && isPlaying && styles.playingSound,
+                sound.isPremium && userTier === 'basic' && styles.premiumButton
               ]}
               onPress={() => onSelectSound(sound)}
             >
@@ -61,10 +64,10 @@ export default function SoundSelector({
               >
                 {sound.name}
               </Text>
-              {sound.isPremium && (
+              {sound.isPremium && userTier === 'basic' && (
                 <MaterialIcons 
-                  name="stars" 
-                  size={14} 
+                  name="lock" 
+                  size={16} 
                   color={theme.colors.primary} 
                   style={styles.premiumIcon}
                 />
@@ -137,5 +140,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     right: 4,
+  },
+  premiumButton: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderColor: theme.colors.primary,
   },
 }); 

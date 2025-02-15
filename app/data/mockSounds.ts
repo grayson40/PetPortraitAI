@@ -22,11 +22,11 @@ export const mockSounds: Sound[] = [
   },
   {
     id: '2',
-    name: 'Treat',
-    icon: 'local-dining',
+    name: 'Bell',
+    icon: 'notifications',
     category: 'attention',
-    uri: require('../assets/sounds/treat.mp3'),
-    isPremium: false,
+    uri: require('../assets/sounds/bell.mp3'),
+    isPremium: true,
   },
   {
     id: '3',
@@ -34,14 +34,6 @@ export const mockSounds: Sound[] = [
     icon: 'music-note',
     category: 'training',
     uri: require('../assets/sounds/whistle.mp3'),
-    isPremium: true,
-  },
-  {
-    id: '4',
-    name: 'Bell',
-    icon: 'notifications',
-    category: 'attention',
-    uri: require('../assets/sounds/bell.mp3'),
     isPremium: true,
   },
 ]; 

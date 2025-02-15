@@ -53,7 +53,7 @@ interface SoundCollection {
 export default function Profile() {
   const { signOut } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [selectedPet, setSelectedPet] = useState<Pet | null>(null);
@@ -65,45 +65,36 @@ export default function Profile() {
   const [isSubscriptionModalVisible, setIsSubscriptionModalVisible] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
 
-  const loadData = async () => {
+  const loadData = async (isInitial = false) => {
     try {
-      setLoading(true);
-      const { data: { user } } = await getSupabase().auth.getUser();
-      
-      if (user) {
-        const userService = UserService.getInstance();
-        const profileData = await userService.getUserProfile();
-        
-        setProfile(profileData);
-        setSoundVolume(profileData.sound_volume);
+      if (isInitial) setInitialLoading(true);
 
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }).start();
-      }
+      const userService = UserService.getInstance();
+      await userService.refreshProfile();
+      const freshProfile = await userService.getUserProfile();
+      
+      setProfile(freshProfile);
+      setSoundVolume(freshProfile.sound_volume);
+
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
     } catch (error) {
-      console.error('Error loading data:', error);
-      if (error instanceof Error && error.message !== 'No user found') {
-        Alert.alert('Error', 'Failed to load profile');
-      }
+      console.error('Error loading profile:', error);
+      Alert.alert('Error', 'Failed to load profile');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isInitial) setInitialLoading(false);
     }
   };
 
   useEffect(() => {
-    const { data: { subscription } } = getSupabase().auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        loadData();
-      }
-    });
+    loadData(true); // Pass true for initial load
 
-    getSupabase().auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        loadData();
+    const { data: { subscription } } = getSupabase().auth.onAuthStateChange(async (event, session) => {
+      if (event === 'USER_UPDATED' || event === 'SIGNED_IN') {
+        await loadData(false); // Pass false for auth updates
       }
     });
 
@@ -115,12 +106,12 @@ export default function Profile() {
   const handleRefresh = async () => {
     try {
       setRefreshing(true);
-      const userService = UserService.getInstance();
-      await userService.clearCache();
-      await loadData();
+      await loadData(false); // Pass false for pull-to-refresh
     } catch (error) {
       console.error('Error refreshing:', error);
       Alert.alert('Error', 'Failed to refresh data');
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -147,7 +138,7 @@ export default function Profile() {
           style: 'destructive',
           onPress: async () => {
             try {
-              setLoading(true);
+              setInitialLoading(true);
               const { data: { user } } = await getSupabase().auth.getUser();
               if (!user) throw new Error('No user found');
 
@@ -167,7 +158,7 @@ export default function Profile() {
               console.error('Error deleting account:', error);
               Alert.alert('Error', 'Failed to delete account. Please try again.');
             } finally {
-              setLoading(false);
+              setInitialLoading(false);
             }
           }
         }
@@ -267,22 +258,18 @@ export default function Profile() {
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <View style={styles.loadingContent}>
-          <LoadingIndicator />
-          <Text style={styles.loadingText}>Loading your profile...</Text>
-        </View>
-      </View>
-    );
+  if (initialLoading) {
+    return <LoadingIndicator />;
   }
 
   return (
     <ScrollView 
       style={styles.container}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+        />
       }
     >
       {/* Profile Header */}

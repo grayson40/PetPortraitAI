@@ -21,6 +21,19 @@ export default function Settings() {
 
   useEffect(() => {
     loadSettings();
+
+    // Subscribe to auth state changes
+    const { data: { subscription } } = getSupabase().auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event);
+      if (event === 'USER_UPDATED' && session?.user) {
+        console.log('Auth state changed, reloading settings...');
+        await loadSettings();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const loadSettings = async () => {
@@ -45,8 +58,8 @@ export default function Settings() {
   const handleVolumeChange = async (value: number) => {
     try {
       setLoading(true);
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
+      const { data: { session } } = await getSupabase().auth.getSession();
+      if (!session?.user) throw new Error('No user found');
 
       // Update local state immediately for better UX
       setSettings(prev => prev ? { ...prev, sound_volume: value } : null);
@@ -54,10 +67,11 @@ export default function Settings() {
       // Debounce the API call
       if (loading) return;
 
-      const response = await fetch(`${API_CONFIG.url}/users/${user.id}`, {
+      const response = await fetch(`${API_CONFIG.url}/users/${session.user.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({ 
           sound_volume: Math.round(value) 
@@ -65,9 +79,11 @@ export default function Settings() {
       });
 
       if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Volume update error:', errorData);
         // Revert on error
         setSettings(prev => prev ? { ...prev, sound_volume: prev.sound_volume } : null);
-        throw new Error('Failed to update volume');
+        throw new Error(errorData.message || 'Failed to update volume');
       }
     } catch (error) {
       console.error('Error updating volume:', error);
@@ -154,6 +170,7 @@ export default function Settings() {
         onClose={() => setIsSubscriptionModalVisible(false)}
         currentTier={settings?.subscription_tier || 'basic'}
         loading={upgrading}
+        loadSettings={loadSettings}
       />
     </ScrollView>
   );

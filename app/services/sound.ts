@@ -2,6 +2,7 @@ import { Audio, AVPlaybackSource } from 'expo-av';
 import { CacheService } from './cache';
 import { getSupabase } from './supabase';
 import { API_CONFIG } from '../constants/config';
+import { mockSounds } from '../data/mockSounds';
 
 interface SoundEffect {
   id: string;
@@ -67,6 +68,8 @@ export class SoundService {
   private effectivenessScores: Map<string, number> = new Map();
   private currentlyPlaying: Audio.Sound | null = null;
   private supabase = getSupabase();
+  private soundCache: Map<string, Sound> = new Map();
+  private initialized: boolean = false;
 
   private constructor() {
     this.cacheService = CacheService.getInstance();
@@ -79,33 +82,47 @@ export class SoundService {
     return SoundService.instance;
   }
 
-  async initialize() {
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-    });
+  isInitialized(): boolean {
+    return this.initialized;
   }
 
-  async loadSound(effect: SoundEffect): Promise<void> {
+  async initialize() {
     try {
-      if (this.sounds.has(effect.id)) {
-        return; // Sound already loaded
-      }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+
+      // Load mock sounds on initialization
+      await Promise.all(
+        mockSounds.map(sound => this.loadSound({
+          id: sound.id,
+          name: sound.name,
+          category: sound.category,
+          uri: sound.uri,
+          isPremium: sound.isPremium
+        }))
+      );
+      this.initialized = true;
+    } catch (error) {
+      console.error('Error initializing sound service:', error);
+      this.initialized = false;
+      throw error;
+    }
+  }
+
+  async loadSound(effect: { id: string; uri: any }) {
+    try {
+      if (this.sounds.has(effect.id)) return;
       
       const { sound } = await Audio.Sound.createAsync(
-        { uri: effect.uri } as AVPlaybackSource,
+        effect.uri,
         { shouldPlay: false, volume: this.volume }
       );
+      
       this.sounds.set(effect.id, sound);
-
-      // Add event listener for playback status
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status && 'didJustFinish' in status && status.didJustFinish) {
-          this.currentlyPlaying = null;
-        }
-      });
     } catch (error) {
       console.error('Error loading sound:', error);
       throw error;
@@ -117,18 +134,8 @@ export class SoundService {
     if (!sound) throw new Error(`Sound ${effectId} not loaded`);
 
     try {
-      // Stop currently playing sound if any
-      if (this.currentlyPlaying) {
-        await this.currentlyPlaying.stopAsync();
-      }
-
-      await sound.setVolumeAsync(this.volume);
       await sound.setPositionAsync(0);
       await sound.playAsync();
-      this.currentlyPlaying = sound;
-      
-      // Track effectiveness
-      this.updateEffectivenessScore(effectId);
     } catch (error) {
       console.error('Error playing sound:', error);
       throw error;
@@ -280,6 +287,8 @@ export class SoundService {
   }
 
   async clearCache(): Promise<void> {
+    this.soundCache.clear();
+    this.initialized = false;
     await Promise.all([
       this.cacheService.remove(CACHE_KEYS.DEFAULT_SOUNDS),
       this.cacheService.remove(CACHE_KEYS.USER_COLLECTIONS),
@@ -372,4 +381,4 @@ export class SoundService {
   }
 }
 
-// export const soundService = SoundService.getInstance(); 
+export const soundService = SoundService.getInstance(); 

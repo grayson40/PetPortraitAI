@@ -13,7 +13,8 @@ interface Sound {
 interface SoundGridProps {
   sounds: Sound[];
   onSoundPress: (sound: Sound) => void;
-  isPremium: boolean;
+  isPlaying: boolean;
+  playingSound: Sound | null;
 }
 
 const getShadow = (size: 'small' | 'medium' | 'large') => {
@@ -47,7 +48,7 @@ const CATEGORIES = [
   { id: 'reward', label: 'Reward', icon: 'stars' },
 ] as const;
 
-export function SoundGrid({ sounds, onSoundPress, isPremium }: SoundGridProps) {
+export function SoundGrid({ sounds, onSoundPress, isPlaying, playingSound }: SoundGridProps) {
   const [selectedCategory, setSelectedCategory] = useState('all');
 
   const filteredSounds = selectedCategory === 'all' 
@@ -58,7 +59,7 @@ export function SoundGrid({ sounds, onSoundPress, isPremium }: SoundGridProps) {
     <Pressable
       style={[
         styles.soundCard,
-        !isPremium && sound.isPremium && styles.soundCardLocked
+        !sound.isPremium && sound.isPremium && styles.soundCardLocked
       ]}
       onPress={() => onSoundPress(sound)}
     >
@@ -85,13 +86,13 @@ export function SoundGrid({ sounds, onSoundPress, isPremium }: SoundGridProps) {
             </View>
           )}
           <MaterialIcons 
-            name="play-arrow" 
+            name={isPlaying && playingSound?.id === sound.id ? "pause" : "play-arrow"}
             size={24} 
             color={theme.colors.primary} 
           />
         </View>
       </View>
-      {!isPremium && sound.isPremium && (
+      {!sound.isPremium && sound.isPremium && (
         <View style={styles.lockOverlay}>
           <MaterialIcons name="lock" size={20} color="#FFF" />
         </View>

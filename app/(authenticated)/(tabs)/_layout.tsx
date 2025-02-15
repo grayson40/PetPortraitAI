@@ -1,15 +1,24 @@
-import React from 'react';
-import { Tabs, router } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Tabs, router, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../../styles/theme';
 import { Pressable, View } from 'react-native';
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import FilterSheet from '../../components/FilterSheet';
 
 export default function TabsLayout() {
+  const { forceRefresh } = useLocalSearchParams();
+  const [refreshKey, setRefreshKey] = useState(0);
   const [hasActiveFilters, setHasActiveFilters] = useState(false);
   const [isFilterSheetVisible, setIsFilterSheetVisible] = useState(false);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (forceRefresh) {
+      // Force re-render of all tab screens
+      setRefreshKey(prev => prev + 1);
+    }
+  }, [forceRefresh]);
 
   const handleApplyFilters = useCallback((filters: string[]) => {
     setActiveFilters(filters);
@@ -20,6 +29,7 @@ export default function TabsLayout() {
   return (
     <>
       <Tabs
+        key={refreshKey}
         screenOptions={{
           headerStyle: {
             backgroundColor: theme.colors.background,

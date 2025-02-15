@@ -21,6 +21,8 @@ import { SoundPreviewPlayer } from '../../components/SoundPreviewPlayer';
 import CollectionModal from '../../components/CollectionModal';
 import MarketplaceModal from '../../components/MarketplaceModal';
 import SubscriptionModal from '../../components/SubscriptionModal';
+import { mockSounds } from '../../data/mockSounds';
+import { getSupabase } from '../../services/supabase';
 
 interface Sound {
   id: string;
@@ -80,12 +82,7 @@ const getShadow = (size: 'small' | 'medium' | 'large') => {
   };
 };
 
-// Basic users only see these default sounds
-const DEFAULT_SOUNDS: Sound[] = [
-  { id: '1', name: 'Basic Bark', category: 'dogs', isPremium: false },
-  { id: '2', name: 'Basic Meow', category: 'cats', isPremium: false },
-  { id: '3', name: 'Basic Whistle', category: 'training', isPremium: false },
-];
+const DEFAULT_SOUNDS = mockSounds;
 
 // Add more premium sounds
 const PREMIUM_SOUNDS: Sound[] = [
@@ -96,32 +93,6 @@ const PREMIUM_SOUNDS: Sound[] = [
   { id: '8', name: 'Reward Chime', category: 'reward', isPremium: true },
   { id: '9', name: 'Bird Call', category: 'birds', isPremium: true },
   // Add more premium sounds
-];
-
-const FEATURED_PACKS = [
-  {
-    id: 'pack1',
-    name: 'Professional Dog Training',
-    description: 'Essential sounds for dog training',
-    image: '',
-    sounds: [
-      { id: 'dt1', name: 'Pro Clicker', category: 'training', isPremium: true },
-      { id: 'dt2', name: 'Whistle Long', category: 'training', isPremium: true },
-    ],
-  },
-  {
-    id: 'pack2',
-    name: 'Cat Behavior',
-    description: '20 specialized cat behavior sounds',
-    price: '$3.99',
-    image: '',
-    sounds: [
-      { id: 'cb1', name: 'Purring', category: 'cats', isPremium: true },
-      { id: 'cb2', name: 'Kitten Call', category: 'cats', isPremium: true },
-      // ... more sounds
-    ],
-  },
-  // ... more packs
 ];
 
 const PREMIUM_FEATURES: PremiumFeature[] = [
@@ -173,7 +144,7 @@ const FEATURED_COLLECTIONS: FeaturedCollection[] = [
 
 export default function SoundManagement() {
   const [sounds, setSounds] = useState<Sound[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isFilterSheetVisible, setIsFilterSheetVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -200,82 +171,62 @@ export default function SoundManagement() {
     );
   }, [sounds, activeFilters]);
 
-  useEffect(() => {
-    loadData();
-    loadUserProfile();
-    loadCollections();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = async (isInitial = false) => {
     try {
-      setLoading(true);
-      const [soundService, collectionService] = [
-        SoundService.getInstance(),
-        CollectionService.getInstance(),
-      ];
+      if (isInitial) setInitialLoading(true);
+      
+      // Get fresh user profile first
+      const userService = UserService.getInstance();
+      await userService.refreshProfile();
+      const profile = await userService.getUserProfile();
+      setUserProfile(profile);
 
-      const [allSounds, userCollections] = await Promise.all([
-        soundService.getDefaultSounds(),
-        isPremium ? collectionService.getUserCollections() : [],
-      ]);
+      // Initialize sound service with fresh data
+      const soundService = SoundService.getInstance();
+      await soundService.clearCache();
+      await soundService.initialize();
 
-      if (userProfile?.subscription_tier === 'premium') {
+      // Load appropriate sounds based on subscription
+      if (profile?.subscription_tier === 'premium') {
         setSounds([...DEFAULT_SOUNDS, ...PREMIUM_SOUNDS]);
-        setCollections(userCollections);
       } else {
         setSounds(DEFAULT_SOUNDS);
       }
     } catch (error) {
       console.error('Error loading data:', error);
+      Alert.alert('Error', 'Failed to load sounds');
     } finally {
-      setLoading(false);
+      if (isInitial) setInitialLoading(false);
     }
   };
 
-  const loadUserProfile = async () => {
-    try {
-      const userService = UserService.getInstance();
-      const profile = await userService.getUserProfile();
-      setUserProfile(profile);
-    } catch (error) {
-      console.error('Error loading user profile:', error);
-    }
-  };
+  useEffect(() => {
+    loadData(true);
 
-  const loadCollections = async () => {
-    try {
-      setIsLoading(true);
-      const collectionService = CollectionService.getInstance();
-      const userCollections = await collectionService.getUserCollections();
-      setCollections(userCollections);
-    } catch (error) {
-      console.error('Error loading collections:', error);
-      Alert.alert('Error', 'Failed to load collections');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    const { data: { subscription } } = getSupabase().auth.onAuthStateChange(async (event, session) => {
+      if (event === 'USER_UPDATED' || event === 'SIGNED_IN') {
+        await loadData(false);
+      }
+    });
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await Promise.all([loadData(), loadUserProfile()]);
-    setRefreshing(false);
-  };
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const handleRefresh = async () => {
     try {
       setRefreshing(true);
-      const collectionService = CollectionService.getInstance();
-      const userCollections = await collectionService.getUserCollections();
-      setCollections(userCollections);
+      await loadData(false);
     } catch (error) {
-      console.error('Error refreshing collections:', error);
+      console.error('Error refreshing:', error);
+      Alert.alert('Error', 'Failed to refresh data');
     } finally {
       setRefreshing(false);
     }
   };
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <View style={styles.loadingContainer}>
         <LoadingIndicator />
@@ -361,39 +312,20 @@ export default function SoundManagement() {
     return collection?.collection_sounds.map(cs => cs.sound_id) || [];
   };
 
-  const handlePreviewSound = async (sound: Sound) => {
+  const handlePlayPause = async (sound: Sound) => {
     try {
-      const soundService = SoundService.getInstance();
-      
-      if (previewingSound?.id === sound.id) {
-        if (isPlaying) {
-          await soundService.pauseSound(sound.id);
-          setIsPlaying(false);
-        } else {
-          await soundService.resumeSound(sound.id);
-          setIsPlaying(true);
-        }
-        return;
-      }
-
-      setPreviewingSound(sound);
-      await soundService.loadSound({
-        id: sound.id,
-        name: sound.name,
-        category: sound.category,
-        url: sound.url,
-        isPremium: sound.isPremium,
-      });
-      await soundService.playSound(sound.id);
-      setIsPlaying(true);
-
-      soundService.onPlaybackEnd(() => {
+      if (isPlaying && previewingSound?.id === sound.id) {
         setIsPlaying(false);
         setPreviewingSound(null);
-      });
+      } else {
+        setPreviewingSound(sound);
+        setIsPlaying(true);
+        const soundService = SoundService.getInstance();
+        await soundService.playSound(sound.id);
+      }
     } catch (error) {
       console.error('Error previewing sound:', error);
-      Alert.alert('Error', 'Failed to preview sound');
+      setIsPlaying(false);
     }
   };
 
@@ -406,84 +338,6 @@ export default function SoundManagement() {
     setIsMarketplaceVisible(true);
   };
 
-  const renderFeaturedSection = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Featured Collections</Text>
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.featuredScroll}
-      >
-        {FEATURED_COLLECTIONS.map(collection => (
-          <Pressable
-            key={collection.id}
-            style={styles.featuredCard}
-            onPress={() => handleCollectionPress(collection)}
-          >
-            <Image 
-              source={collection.coverImage} 
-              style={styles.collectionImage}
-            />
-            <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.8)']}
-              style={styles.cardGradient}
-            >
-              <View style={styles.cardContent}>
-                <Text style={styles.collectionName}>{collection.name}</Text>
-                <Text style={styles.collectionDescription}>
-                  {collection.description}
-                </Text>
-                <Text style={styles.soundCount}>
-                  {collection.soundCount} sounds
-                </Text>
-              </View>
-            </LinearGradient>
-          </Pressable>
-        ))}
-      </ScrollView>
-    </View>
-  );
-
-  const renderUserCollections = () => (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Your Collections</Text>
-        <Pressable 
-          style={styles.addButton}
-          onPress={() => setIsCreateModalVisible(true)}
-        >
-          <MaterialIcons name="add" size={24} color={theme.colors.primary} />
-        </Pressable>
-      </View>
-      
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.collectionsScroll}
-      >
-        {collections.map(collection => (
-          <Pressable
-            key={collection.id}
-            style={[
-              styles.collectionCard,
-              collection.is_active && styles.activeCard
-            ]}
-            onPress={() => handleSetActive(collection.id)}
-          >
-            <MaterialIcons 
-              name={collection.is_active ? "folder-special" : "folder"} 
-              size={24} 
-              color={collection.is_active ? theme.colors.primary : theme.colors.text.secondary} 
-            />
-            <Text style={styles.collectionName}>{collection.name}</Text>
-            <Text style={styles.soundCount}>
-              {collection.collection_sounds.length} sounds
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-    </View>
-  );
 
   const renderPremiumView = () => (
     <>
@@ -611,8 +465,9 @@ export default function SoundManagement() {
         <Text style={styles.sectionTitle}>All Sounds</Text>
         <SoundGrid
           sounds={filteredSounds}
-          onSoundPress={handlePreviewSound}
-          isPremium={true}
+          onSoundPress={handlePlayPause}
+          isPlaying={isPlaying}
+          playingSound={previewingSound}
         />
       </View>
     </>
@@ -686,8 +541,9 @@ export default function SoundManagement() {
         <Text style={styles.sectionTitle}>Basic Sounds</Text>
         <SoundGrid
           sounds={DEFAULT_SOUNDS}
-          onSoundPress={handlePreviewSound}
-          isPremium={false}
+          onSoundPress={handlePlayPause}
+          isPlaying={isPlaying}
+          playingSound={previewingSound}
         />
       </View>
       <BlurView intensity={80} tint="light" style={styles.premiumPreview}>

@@ -7,12 +7,16 @@ import { useStripe } from '@stripe/stripe-react-native';
 import { STRIPE_CONFIG } from '../constants/config';
 import { getSupabase } from '../services/supabase';
 import { API_CONFIG } from '../constants/config';
+import { userService } from '../services/user';
+import { soundService } from '../services/sound';
+import { router } from 'expo-router';
 
 interface SubscriptionModalProps {
   visible: boolean;
   onClose: () => void;
   currentTier: 'basic' | 'premium';
-  loading?: boolean;
+  loading: boolean;
+  loadSettings?: () => Promise<void>;
 }
 
 const SUBSCRIPTION_PRICES = {
@@ -30,10 +34,11 @@ const SUBSCRIPTION_PRICES = {
 
 type ModalView = 'overview' | 'payment';
 
-export default function SubscriptionModal({ visible, onClose, currentTier, loading = false }: SubscriptionModalProps) {
+export default function SubscriptionModal({ visible, onClose, currentTier, loading: isLoading = false, loadSettings }: SubscriptionModalProps) {
   const [modalView, setModalView] = useState<ModalView>('overview');
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('monthly');
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
+  const [loading, setLoading] = useState(false);
 
   const PREMIUM_FEATURES = [
     { id: '1', text: 'Access to premium sounds', icon: 'music-note' as const },
@@ -81,7 +86,7 @@ export default function SubscriptionModal({ visible, onClose, currentTier, loadi
       const { clientSecret, ephemeralKey, customer } = await response.json();
 
       const { error: initError } = await initPaymentSheet({
-        merchantDisplayName: 'PetPortrait',
+        merchantDisplayName: 'PetPortraitAI',
         customerId: customer,
         customerEphemeralKeySecret: ephemeralKey,
         paymentIntentClientSecret: clientSecret,
@@ -100,19 +105,45 @@ export default function SubscriptionModal({ visible, onClose, currentTier, loadi
     }
   };
 
+  const refreshAppState = async () => {
+    try {
+      setLoading(true);
+
+      // Show success message first
+      Alert.alert('Success', 'Welcome to Premium!', [
+        {
+          text: 'OK',
+          onPress: () => {
+            handleClose();
+            // Force a fresh reload of the app
+            router.replace('/(authenticated)/(tabs)');
+          }
+        }
+      ]);
+    } catch (error) {
+      console.error('Error in subscription flow:', error);
+      Alert.alert('Error', 'There was a problem with your subscription. Please contact support if this persists.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handlePaymentSubmit = async () => {
     try {
+      setLoading(true);
       const initialized = await initializePayment();
       if (!initialized) return;
 
       const { error: presentError } = await presentPaymentSheet();
       if (presentError) throw new Error(presentError.message);
 
-      Alert.alert('Success', 'Welcome to Premium!');
-      handleClose();
+      // Payment successful, show alert and refresh
+      await refreshAppState();
     } catch (error) {
       console.error('Error processing payment:', error);
       Alert.alert('Error', 'Failed to process payment');
+    } finally {
+      setLoading(false);
     }
   };
 

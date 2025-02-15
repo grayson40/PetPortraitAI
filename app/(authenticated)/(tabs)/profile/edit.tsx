@@ -70,7 +70,7 @@ export default function EditProfile() {
         },
         body: JSON.stringify({
           display_name: form.displayName.trim(),
-          phone: form.phone.trim(),
+          email: form.email.trim(),
         }),
       });
 
