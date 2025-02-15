@@ -1,7 +1,7 @@
-# PetPortrait - AI-Powered Pet Photography Assistant
+# PetPortraitAI - Perfect Pet Portraits
 
 ## Project Overview
-PetPortrait is a mobile application designed to help pet owners capture perfect photos of their pets. The app uses AI/ML to detect optimal moments for photography and includes an intelligent sound system to grab pets' attention.
+PetPortraitAI is a mobile application designed to help pet owners capture perfect photos of their pets. The app uses AI/ML to detect optimal moments for photography and includes an intelligent sound system to grab pets' attention.
 
 ## Core Value Proposition
 - Solves the common problem of getting pets to look at the camera.
