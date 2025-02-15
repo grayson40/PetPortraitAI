@@ -31,6 +31,8 @@ export class UserService {
   private supabase = getSupabase();
   private soundService: SoundService;
   private collectionService: CollectionService;
+  private userCache: any = null;
+  private listeners: (() => void)[] = [];
 
   private constructor() {
     this.soundService = SoundService.getInstance();
@@ -42,6 +44,40 @@ export class UserService {
       UserService.instance = new UserService();
     }
     return UserService.instance;
+  }
+
+  async initializeCache(): Promise<void> {
+    try {
+      const { data: { session } } = await this.supabase.auth.getSession();
+      if (!session?.user) {
+        this.userCache = null;
+        return;
+      }
+
+      // Always fetch fresh data from API
+      const response = await fetch(`${API_CONFIG.url}/users/${session.user.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to fetch user profile:', await response.text());
+        this.userCache = null;
+        return;
+      }
+
+      // Update cache with fresh data
+      const profile = await response.json();
+      this.userCache = profile;
+      await AsyncStorage.setItem(CACHE_KEYS.USER_PROFILE, JSON.stringify(profile));
+      
+      // Notify listeners of update
+      this.notifyListeners();
+    } catch (error) {
+      console.error('Error initializing user cache:', error);
+      this.userCache = null;
+    }
   }
 
   async initializeUserCache(session?: any) {
@@ -137,9 +173,21 @@ export class UserService {
     }
   }
 
-  // Call this on logout
   async clearCache() {
-    await AsyncStorage.removeItem(CACHE_KEYS.USER_PROFILE);
+    this.userCache = null;
+    // Notify listeners that cache was cleared
+    this.notifyListeners();
+  }
+
+  private notifyListeners() {
+    this.listeners.forEach(callback => callback());
+  }
+
+  subscribeToUpdates(callback: () => void) {
+    this.listeners.push(callback);
+    return () => {
+      this.listeners = this.listeners.filter(cb => cb !== callback);
+    };
   }
 
   async addPet(petData: { name: string; type: string }) {
@@ -196,4 +244,97 @@ export class UserService {
       throw error;
     }
   }
-} 
+
+  async updateSubscription(subscriptionTier: 'basic' | 'premium') {
+    try {
+      const { data: { session } } = await this.supabase.auth.getSession();
+      if (!session?.user) throw new Error('No authenticated user');
+
+      // Update auth metadata to trigger USER_UPDATED event
+      const { error: authError } = await this.supabase.auth.updateUser({
+        data: {
+          subscription_tier: subscriptionTier,
+          updated_at: new Date().toISOString(),
+        }
+      });
+
+      if (authError) throw authError;
+
+      // Wait for webhook to process
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Clear just the profile cache, keep session
+      this.userCache = null;
+      await AsyncStorage.removeItem(CACHE_KEYS.USER_PROFILE);
+      
+      // Get fresh data with current session
+      const response = await fetch(`${API_CONFIG.url}/users/${session.user.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch updated profile');
+      }
+
+      // Update cache with fresh data
+      const freshProfile = await response.json();
+      this.userCache = freshProfile;
+      await AsyncStorage.setItem(CACHE_KEYS.USER_PROFILE, JSON.stringify(freshProfile));
+      
+      // Notify listeners of update
+      this.notifyListeners();
+
+      return freshProfile;
+    } catch (error) {
+      console.error('Error updating subscription:', error);
+      throw error;
+    }
+  }
+
+  // Helper method to check subscription status
+  isSubscriptionPremium(): boolean {
+    return this.userCache?.subscription_tier === 'premium';
+  }
+
+  // Get current subscription tier
+  getSubscriptionTier(): 'basic' | 'premium' {
+    return this.userCache?.subscription_tier || 'basic';
+  }
+
+  // Add a new method for pull-to-refresh
+  async refreshProfile(): Promise<void> {
+    try {
+      const { data: { session } } = await this.supabase.auth.getSession();
+      if (!session?.user) throw new Error('No authenticated user');
+
+      // Clear cache first
+      this.userCache = null;
+      await AsyncStorage.removeItem(CACHE_KEYS.USER_PROFILE);
+
+      // Fetch fresh data
+      const response = await fetch(`${API_CONFIG.url}/users/${session.user.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to refresh profile');
+
+      // Update cache with fresh data
+      const profile = await response.json();
+      this.userCache = profile;
+      await AsyncStorage.setItem(CACHE_KEYS.USER_PROFILE, JSON.stringify(profile));
+      
+      // Notify listeners
+      this.notifyListeners();
+    } catch (error) {
+      console.error('Error refreshing profile:', error);
+      throw error;
+    }
+  }
+}
+
+// Create and export a singleton instance
+export const userService = UserService.getInstance(); 

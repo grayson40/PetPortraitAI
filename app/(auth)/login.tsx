@@ -29,10 +29,7 @@ export default function Login() {
       if (error) throw error;
       if (!data?.session) throw new Error('No session');
 
-      // Initialize user cache before navigation
-      const userService = UserService.getInstance();
-      await userService.initializeUserCache(data.session);
-
+      // Don't initialize cache here - let the auth context handle it
       router.replace('/(authenticated)/(tabs)');
     } catch (error) {
       console.error('Error logging in:', error);
@@ -58,10 +55,8 @@ export default function Login() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>PetPortrait</Text>
-      <Text style={styles.subtitle}>
-        {isSignUp ? 'Create your account' : 'Sign in to continue'}
-      </Text>
+      <Text style={styles.title}>Welcome Back</Text>
+      <Text style={styles.subtitle}>Sign in to continue</Text>
 
       <View style={styles.form}>
         <TextInput
@@ -83,38 +78,37 @@ export default function Login() {
         />
 
         <Pressable 
-          style={[styles.button, loading && styles.buttonDisabled]} 
+          style={[styles.button, loading && styles.buttonDisabled]}
           onPress={handleSubmit}
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={theme.colors.text.inverse} />
           ) : (
-            <Text style={styles.buttonText}>
-              {isSignUp ? 'Create Account' : 'Sign In'}
-            </Text>
+            <Text style={styles.buttonText}>Sign In</Text>
           )}
         </Pressable>
 
         <Pressable 
-          style={styles.textButton}
-          onPress={() => setIsSignUp(!isSignUp)}
+          style={styles.textButton} 
+          onPress={handleForgotPassword}
           disabled={loading}
         >
-          <Text style={styles.textButtonText}>
-            {isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
-          </Text>
+          <Text style={styles.textButtonText}>Forgot Password?</Text>
         </Pressable>
 
-        {!isSignUp && (
-          <Pressable 
-            style={styles.textButton}
-            onPress={handleForgotPassword}
-            disabled={loading}
-          >
-            <Text style={styles.textButtonText}>Forgot Password?</Text>
-          </Pressable>
-        )}
+        <View style={styles.divider}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>or</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+        <Pressable 
+          style={styles.createAccountButton}
+          onPress={() => router.push('/(auth)/signup')}
+        >
+          <Text style={styles.createAccountText}>Create Account</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -123,21 +117,20 @@ export default function Login() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: theme.colors.background,
     padding: theme.spacing.xl,
     justifyContent: 'center',
-    backgroundColor: theme.colors.background,
   },
   title: {
-    ...theme.typography.h1,
-    textAlign: 'center',
-    marginBottom: theme.spacing.xs,
+    fontSize: 32,
+    fontWeight: '700',
     color: theme.colors.text.primary,
+    marginBottom: theme.spacing.sm,
   },
   subtitle: {
-    ...theme.typography.body,
+    fontSize: theme.typography.body.fontSize,
     color: theme.colors.text.secondary,
-    textAlign: 'center',
-    marginBottom: theme.spacing.xxl,
+    marginBottom: theme.spacing.xl,
   },
   form: {
     gap: theme.spacing.md,
@@ -152,8 +145,8 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: theme.colors.primary,
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.lg,
+    borderRadius: theme.borderRadius.full,
     alignItems: 'center',
     marginTop: theme.spacing.sm,
   },
@@ -164,6 +157,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text.inverse,
     fontSize: theme.typography.body.fontSize,
     fontWeight: '600',
+    letterSpacing: 0.5,
   },
   textButton: {
     padding: theme.spacing.sm,
@@ -172,5 +166,32 @@ const styles = StyleSheet.create({
   textButtonText: {
     color: theme.colors.primary,
     fontSize: theme.typography.caption.fontSize,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: theme.spacing.lg,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.colors.border,
+  },
+  dividerText: {
+    color: theme.colors.text.secondary,
+    paddingHorizontal: theme.spacing.md,
+  },
+  createAccountButton: {
+    padding: theme.spacing.lg,
+    borderRadius: theme.borderRadius.full,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  createAccountText: {
+    color: theme.colors.primary,
+    fontSize: theme.typography.body.fontSize,
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
 }); 

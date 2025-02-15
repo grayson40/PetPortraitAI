@@ -1,11 +1,17 @@
 {
   "expo": {
-    "name": "PetPortrait",
-    "slug": "pet-portrait",
-    "scheme": "petportrait",
+    "name": "PetPortraitAI",
+    "slug": "pet-portrait-ai",
+    "scheme": "petportraitai",
     "version": "1.0.0",
     "plugins": [
       "expo-router"
-    ]
+    ],
+    "ios": {
+      "bundleIdentifier": "com.yourcompany.petportraitai"
+    },
+    "android": {
+      "package": "com.yourcompany.petportraitai"
+    }
   }
 }
