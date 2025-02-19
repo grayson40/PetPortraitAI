@@ -17,12 +17,13 @@ import AddSoundsModal from '../../components/AddSoundsModal';
 import * as Haptics from 'expo-haptics';
 import { CollectionService } from '../../services/collection';
 import { LinearGradient } from 'expo-linear-gradient';
-import { SoundPreviewPlayer } from '../../components/SoundPreviewPlayer';
+import SoundPreviewPlayer from '../../components/SoundPreviewPlayer';
 import CollectionModal from '../../components/CollectionModal';
 import MarketplaceModal from '../../components/MarketplaceModal';
 import SubscriptionModal from '../../components/SubscriptionModal';
 import { mockSounds } from '../../data/mockSounds';
 import { getSupabase } from '../../services/supabase';
+import EditCollectionModal from '../../components/EditCollectionModal';
 
 interface Sound {
   id: string;
@@ -125,9 +126,9 @@ const PREMIUM_FEATURES: PremiumFeature[] = [
 const FEATURED_COLLECTIONS: FeaturedCollection[] = [
   {
     id: 'dogs',
-    name: 'Dog Training',
+    name: 'Dog Attention',
     description: 'Essential sounds for dog photography',
-    coverImage: '',
+    coverImage: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2340&q=80',
     soundCount: 25,
     isActive: false,
   },
@@ -135,7 +136,7 @@ const FEATURED_COLLECTIONS: FeaturedCollection[] = [
     id: 'cats',
     name: 'Cat Attention',
     description: 'Proven sounds to catch cat attention',
-    coverImage: '',
+    coverImage: 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2340&q=80',
     soundCount: 20,
     isActive: false,
   },
@@ -161,6 +162,8 @@ export default function SoundManagement() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubscriptionModalVisible, setIsSubscriptionModalVisible] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const activeCollection = collections.find(c => c.is_active);
 
   const isPremium = userProfile?.subscription_tier === 'premium';
 
@@ -180,6 +183,11 @@ export default function SoundManagement() {
       await userService.refreshProfile();
       const profile = await userService.getUserProfile();
       setUserProfile(profile);
+
+      // Fetch collections
+      const collectionService = CollectionService.getInstance();
+      const collections = await collectionService.getUserCollections();
+      setCollections(collections);
 
       // Initialize sound service with fresh data
       const soundService = SoundService.getInstance();
@@ -227,16 +235,19 @@ export default function SoundManagement() {
   };
 
   if (initialLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <LoadingIndicator />
-        <Text style={styles.loadingText}>Loading your sounds...</Text>
-      </View>
-    );
+    return <LoadingIndicator message="Loading your sounds..." />;
   }
 
-  const handleCollectionPress = (collection) => {
-    setSelectedCollection(collection);
+  const handleCollectionPress = (collection: FeaturedCollection) => {
+    // Convert featured collection to the format expected by CollectionModal
+    setSelectedCollection({
+      id: collection.id,
+      name: collection.name,
+      description: collection.description,
+      soundCount: collection.soundCount,
+      // For featured collections, sounds will be loaded when saving
+      sounds: DEFAULT_SOUNDS.slice(0, collection.soundCount)
+    });
     setIsCollectionModalVisible(true);
   };
 
@@ -245,7 +256,7 @@ export default function SoundManagement() {
       const collectionService = CollectionService.getInstance();
       const newCollection = await collectionService.createCollection(
         name,
-        selectedSounds.map((soundId, index) => ({
+        selectedSounds.map((soundId: string, index: number) => ({
           sound_id: soundId,
           order_index: index,
         }))
@@ -264,15 +275,32 @@ export default function SoundManagement() {
     
     try {
       const collectionService = CollectionService.getInstance();
-      await collectionService.createCollection(
-        selectedCollection.name,
-        selectedCollection.sounds.map((sound, index) => ({
-          sound_id: sound.id,
-          order_index: index,
-        }))
-      );
+      const soundService = SoundService.getInstance();
+
+      // For featured collections, we need to load the sounds first
+      if (selectedCollection.soundCount) {
+        // Create collection with featured collection details
+        await collectionService.createCollection(
+          selectedCollection.name,
+          DEFAULT_SOUNDS.slice(0, selectedCollection.soundCount).map((sound, index) => ({
+            sound_id: sound.id,
+            order_index: index,
+          }))
+        );
+      } else {
+        // Regular collection save
+        await collectionService.createCollection(
+          selectedCollection.name,
+          selectedCollection.sounds.map((sound, index) => ({
+            sound_id: sound.id,
+            order_index: index,
+          }))
+        );
+      }
+
       setIsCollectionModalVisible(false);
       setSelectedCollection(null);
+      await loadData(); // Refresh collections
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error('Error saving collection:', error);
@@ -297,10 +325,20 @@ export default function SoundManagement() {
   const handleAddSounds = async (collectionId: string, soundIds: string[]) => {
     try {
       const collectionService = CollectionService.getInstance();
-      await collectionService.addSoundsToCollection(collectionId, soundIds);
-      // Refresh collections
-      const updatedCollections = await collectionService.getUserCollections();
-      setCollections(updatedCollections);
+      const collection = collections.find(c => c.id === collectionId);
+      const startIndex = collection?.collection_sounds.length || 0;
+      
+      const soundsToAdd = soundIds.map((id, index) => ({
+        collection_id: collectionId,
+        sound_id: id,
+        sound_type: 'default',
+        order_index: startIndex + index
+      }));
+
+      await collectionService.addSoundsToCollection(collectionId, soundsToAdd);
+      await loadData(); // Refresh collections
+      Alert.alert('Success', 'Sounds added to collection');
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error('Error adding sounds:', error);
       Alert.alert('Error', 'Failed to add sounds');
@@ -314,19 +352,48 @@ export default function SoundManagement() {
 
   const handlePlayPause = async (sound: Sound) => {
     try {
+      const soundService = SoundService.getInstance();
+      
       if (isPlaying && previewingSound?.id === sound.id) {
+        // Just pause current sound
         setIsPlaying(false);
-        setPreviewingSound(null);
+        await soundService.cleanup(false); // Don't unload, just stop
       } else {
-        setPreviewingSound(sound);
         setIsPlaying(true);
-        const soundService = SoundService.getInstance();
+        
+        // Load sound if it's new
+        if (!previewingSound || previewingSound.id !== sound.id) {
+          setPreviewingSound(sound);
+          await soundService.cleanup(true); // Unload previous sound
+          await soundService.loadSound({
+            id: sound.id,
+            uri: sound.uri,
+          });
+        }
+        
+        // Play the sound
         await soundService.playSound(sound.id);
+        
+        // Reset play state when sound finishes
+        soundService.onPlaybackStatusUpdate((status) => {
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+          }
+        });
       }
     } catch (error) {
-      console.error('Error previewing sound:', error);
+      console.error('Error playing sound:', error);
+      Alert.alert('Error', 'Failed to play sound');
       setIsPlaying(false);
     }
+  };
+
+  // Add cleanup handler for preview close
+  const handlePreviewClose = async () => {
+    const soundService = SoundService.getInstance();
+    await soundService.cleanup(true); // Fully unload when closing preview
+    setPreviewingSound(null);
+    setIsPlaying(false);
   };
 
   const handleApplyFilters = (filters: string[]) => {
@@ -338,13 +405,48 @@ export default function SoundManagement() {
     setIsMarketplaceVisible(true);
   };
 
+  const handleActiveCollectionPress = () => {
+    if (activeCollection) {
+      setIsEditModalVisible(true);
+    }
+  };
+
+  const handleReorderSounds = async (from: number, to: number) => {
+    if (!selectedCollection) return;
+    
+    try {
+      const collectionService = CollectionService.getInstance();
+      await collectionService.reorderSounds(selectedCollection.id, from, to);
+      await loadData(); // Refresh collections
+    } catch (error) {
+      console.error('Error reordering sounds:', error);
+      Alert.alert('Error', 'Failed to reorder sounds');
+    }
+  };
+
+  const handleRemoveSound = async (soundId: string) => {
+    if (!selectedCollection) return;
+
+    try {
+      const collectionService = CollectionService.getInstance();
+      await collectionService.removeSoundFromCollection(selectedCollection.id, soundId);
+      await loadData(); // Refresh collections
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error removing sound:', error);
+      Alert.alert('Error', 'Failed to remove sound');
+    }
+  };
 
   const renderPremiumView = () => (
     <>
       {/* Active Collection Card */}
       <ActiveCollection
-        name={collections.find(c => c.is_active)?.name || 'Select a Collection'}
-        soundCount={collections.find(c => c.is_active)?.collection_sounds.length || 0}
+        collection={collections.find(c => c.is_active) || {
+          name: 'Select a Collection',
+          soundCount: 0,
+        }}
+        onPress={handleActiveCollectionPress}
       />
 
       {/* User Collections */}
@@ -429,18 +531,21 @@ export default function SoundManagement() {
         </View>
 
         <ScrollView 
-          horizontal 
+          horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.featuredScroll}
-          decelerationRate="fast"
-          snapToInterval={280 + theme.spacing.md}
         >
-          {FEATURED_COLLECTIONS.map(collection => (
+          {FEATURED_COLLECTIONS.map((collection) => (
             <Pressable
               key={collection.id}
               style={styles.featuredCard}
               onPress={() => handleCollectionPress(collection)}
             >
+              <Image
+                source={{ uri: collection.coverImage }}
+                style={styles.collectionImage}
+                resizeMode="cover"
+              />
               <LinearGradient
                 colors={['transparent', 'rgba(0,0,0,0.8)']}
                 style={styles.cardGradient}
@@ -475,7 +580,6 @@ export default function SoundManagement() {
 
   const handleFabPress = () => {
     if (!isPremium) {
-      router.push('/profile/subscription');
       return;
     }
 
@@ -641,23 +745,33 @@ export default function SoundManagement() {
         <SoundPreviewPlayer
           sound={previewingSound}
           isPlaying={isPlaying}
-          onPlayPause={handlePlayPause}
-          onClose={() => {
-            setPreviewingSound(null);
-            setIsPlaying(false);
+          onPlayPause={() => handlePlayPause(previewingSound)}
+          onClose={handlePreviewClose}
+        />
+      )}
+
+      {activeCollection && (
+        <EditCollectionModal
+          visible={isEditModalVisible}
+          onClose={() => setIsEditModalVisible(false)}
+          collection={activeCollection}
+          onReorder={handleReorderSounds}
+          onRemoveSound={handleRemoveSound}
+          onAddSounds={() => {
+            setIsEditModalVisible(false);
+            setIsAddSoundsVisible(true);
           }}
         />
       )}
 
       <CollectionModal
         visible={isCollectionModalVisible}
-        onClose={() => {
-          setIsCollectionModalVisible(false);
-          setSelectedCollection(null);
-        }}
+        onClose={() => setIsCollectionModalVisible(false)}
         onSave={handleSaveCollection}
         collection={selectedCollection}
         isPremium={isPremium}
+        existingCollections={collections}
+        onAddToCollection={handleAddSounds}
       />
 
       <MarketplaceModal

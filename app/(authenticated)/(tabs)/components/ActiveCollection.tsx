@@ -1,27 +1,31 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../../../styles/theme';
+import { SoundCollection } from '../../../types/SoundCollection';
 
 interface ActiveCollectionProps {
-  name: string;
-  soundCount: number;
+  collection: SoundCollection;
+  onPress: () => void;
 }
 
-export function ActiveCollection({ name, soundCount }: ActiveCollectionProps) {
+export function ActiveCollection({ collection, onPress }: ActiveCollectionProps) {
   return (
-    <View style={styles.container}>
-      <View style={styles.info}>
+    <Pressable 
+      style={styles.container}
+      onPress={onPress}
+    >
+      <View style={styles.header}>
+        <Text style={styles.title}>{collection.name}</Text>
         <MaterialIcons 
-          name="volume-up" 
-          size={24} 
-          color={theme.colors.primary} 
+          name="edit" 
+          size={20} 
+          color={theme.colors.text.secondary} 
         />
-        <Text style={styles.name}>{name}</Text>
       </View>
       <Text style={styles.count}>
-        {soundCount} {soundCount === 1 ? 'sound' : 'sounds'}
+        {collection.collection_sounds.length} sounds
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -36,12 +40,12 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.lg,
     borderRadius: theme.borderRadius.lg,
   },
-  info: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
   },
-  name: {
+  title: {
     fontSize: theme.typography.body.fontSize,
     fontWeight: '600',
     color: theme.colors.text.primary,

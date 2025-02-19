@@ -1,8 +1,10 @@
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, ScrollView, ActionSheetIOS } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { theme } from '../styles/theme';
 import * as Haptics from 'expo-haptics';
+import { useState } from 'react';
+import { SoundService } from '../services/sound';
 
 interface CollectionModalProps {
   visible: boolean;
@@ -12,10 +14,13 @@ interface CollectionModalProps {
     id: string;
     name: string;
     description: string;
-    soundCount: number;
+    soundCount?: number;
     sounds?: Sound[];
   } | null;
   isPremium: boolean;
+  onSoundSelect?: (soundId: string) => void;
+  existingCollections?: Array<{id: string; name: string}>;
+  onAddToCollection?: (collectionId: string, soundIds: string[]) => void;
 }
 
 interface Sound {
@@ -23,6 +28,7 @@ interface Sound {
   name: string;
   category: string;
   isPremium: boolean;
+  uri?: string;
 }
 
 export default function CollectionModal({ 
@@ -30,9 +36,61 @@ export default function CollectionModal({
   onClose, 
   onSave,
   collection,
-  isPremium 
+  isPremium,
+  onSoundSelect,
+  existingCollections,
+  onAddToCollection
 }: CollectionModalProps) {
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [selectedSounds, setSelectedSounds] = useState<Set<string>>(new Set());
+
   if (!collection) return null;
+
+  const handleSoundPress = async (sound: Sound) => {
+    try {
+      const soundService = SoundService.getInstance();
+      
+      if (playingId === sound.id) {
+        // Stop playing
+        await soundService.cleanup(false);
+        setPlayingId(null);
+      } else {
+        // Start playing new sound
+        if (playingId) {
+          await soundService.cleanup(true);
+        }
+        
+        await soundService.loadSound({
+          id: sound.id,
+          uri: sound.uri,
+        });
+        await soundService.playSound(sound.id);
+        setPlayingId(sound.id);
+
+        // Auto-stop after playback
+        soundService.onPlaybackStatusUpdate((status) => {
+          if (status.didJustFinish) {
+            setPlayingId(null);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error playing sound:', error);
+      setPlayingId(null);
+    }
+  };
+
+  const handleSoundSelect = (soundId: string) => {
+    const newSelected = new Set(selectedSounds);
+    if (newSelected.has(soundId)) {
+      newSelected.delete(soundId);
+    } else {
+      newSelected.add(soundId);
+    }
+    setSelectedSounds(newSelected);
+    onSoundSelect?.(soundId);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
 
   return (
     <Modal
@@ -61,24 +119,27 @@ export default function CollectionModal({
               collection.sounds.map(sound => (
                 <Pressable 
                   key={sound.id}
-                  style={styles.soundItem}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
+                  style={[
+                    styles.soundItem,
+                    selectedSounds.has(sound.id) && styles.selectedSound
+                  ]}
+                  onPress={() => handleSoundSelect(sound.id)}
                 >
                   <View style={styles.soundInfo}>
                     <MaterialIcons 
-                      name="music-note" 
+                      name={selectedSounds.has(sound.id) ? "check-circle" : "radio-button-unchecked"} 
                       size={24} 
                       color={theme.colors.primary} 
                     />
                     <Text style={styles.soundName}>{sound.name}</Text>
                   </View>
-                  <MaterialIcons 
-                    name="play-arrow" 
-                    size={24} 
-                    color={theme.colors.primary} 
-                  />
+                  <Pressable onPress={() => handleSoundPress(sound)}>
+                    <MaterialIcons 
+                      name={playingId === sound.id ? "pause" : "play-arrow"} 
+                      size={24} 
+                      color={theme.colors.primary} 
+                    />
+                  </Pressable>
                 </Pressable>
               ))
             ) : (
@@ -86,16 +147,56 @@ export default function CollectionModal({
             )}
           </ScrollView>
 
-          {/* Save Button */}
-          <Pressable 
-            style={styles.saveButton}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              onSave();
-            }}
-          >
-            <Text style={styles.saveText}>Save Collection</Text>
-          </Pressable>
+          {/* Bottom Actions */}
+          <View style={styles.actions}>
+            {selectedSounds.size > 0 && existingCollections && (
+              <Pressable 
+                style={styles.addToButton}
+                onPress={() => {
+                  ActionSheetIOS.showActionSheetWithOptions(
+                    {
+                      title: 'Add to Collection',
+                      options: [
+                        'Cancel',
+                        ...existingCollections.map(c => c.name)
+                      ],
+                      cancelButtonIndex: 0,
+                    },
+                    async (buttonIndex) => {
+                      if (buttonIndex > 0) {
+                        const collection = existingCollections[buttonIndex - 1];
+                        await onAddToCollection?.(
+                          collection.id, 
+                          Array.from(selectedSounds)
+                        );
+                        setSelectedSounds(new Set());
+                        onClose();
+                      }
+                    }
+                  );
+                }}
+              >
+                <MaterialIcons 
+                  name="playlist-add" 
+                  size={24} 
+                  color={theme.colors.primary} 
+                />
+                <Text style={styles.addToText}>Add to Collection</Text>
+              </Pressable>
+            )}
+
+            <Pressable 
+              style={styles.saveButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onSave();
+              }}
+            >
+              <Text style={styles.saveText}>
+                {selectedSounds.size > 0 ? `Add ${selectedSounds.size} Sounds` : 'Save Collection'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </BlurView>
     </Modal>
@@ -152,6 +253,24 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.body.fontSize,
     color: theme.colors.text.primary,
   },
+  actions: {
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
+  },
+  addToButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.spacing.lg,
+    backgroundColor: theme.colors.primary + '10',
+    borderRadius: theme.borderRadius.full,
+    gap: theme.spacing.sm,
+  },
+  addToText: {
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.primary,
+    fontWeight: '600',
+  },
   saveButton: {
     margin: theme.spacing.lg,
     padding: theme.spacing.lg,
@@ -169,5 +288,8 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
     textAlign: 'center',
     padding: theme.spacing.xl,
+  },
+  selectedSound: {
+    backgroundColor: theme.colors.primary + '10',
   },
 }); 

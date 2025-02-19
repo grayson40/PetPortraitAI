@@ -3,6 +3,7 @@ import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { theme } from '../styles/theme';
+import LoadingIndicator from '../components/LoadingIndicator';
 
 export default function ConfirmEmail() {
   const params = useLocalSearchParams();
@@ -39,10 +40,7 @@ export default function ConfirmEmail() {
   }, [params]);
 
   return (
-    <View style={styles.container}>
-      <ActivityIndicator size="large" color={theme.colors.primary} />
-      <Text style={styles.text}>Confirming your email...</Text>
-    </View>
+    <LoadingIndicator message="Confirming your email..." />
   );
 }
 

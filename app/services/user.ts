@@ -39,6 +39,10 @@ export class UserService {
     this.collectionService = CollectionService.getInstance();
   }
 
+  /**
+   * Get the instance of the UserService
+   * @returns The instance of the UserService
+   */
   static getInstance(): UserService {
     if (!UserService.instance) {
       UserService.instance = new UserService();
@@ -46,6 +50,10 @@ export class UserService {
     return UserService.instance;
   }
 
+  /**
+   * Initialize the cache
+   * @returns The cache
+   */
   async initializeCache(): Promise<void> {
     try {
       const { data: { session } } = await this.supabase.auth.getSession();
@@ -80,6 +88,11 @@ export class UserService {
     }
   }
 
+  /**
+   * Initialize the user cache
+   * @param session - The session
+   * @returns The user cache
+   */
   async initializeUserCache(session?: any) {
     try {
       console.log('Initializing user cache...');
@@ -141,6 +154,10 @@ export class UserService {
     }
   }
 
+  /**
+   * Get the user profile
+   * @returns The user profile
+   */
   async getUserProfile() {
     try {
       const cached = await AsyncStorage.getItem(CACHE_KEYS.USER_PROFILE);
@@ -154,6 +171,11 @@ export class UserService {
     }
   }
 
+  /**
+   * Update the user profile
+   * @param updates - The updates to the user profile
+   * @returns The updated user profile
+   */
   async updateUserProfile(updates: Partial<UserProfile>) {
     try {
       const { data: profile, error } = await this.supabase
@@ -173,16 +195,27 @@ export class UserService {
     }
   }
 
+  /**
+   * Clear the cache
+   */
   async clearCache() {
     this.userCache = null;
     // Notify listeners that cache was cleared
     this.notifyListeners();
   }
 
+  /**
+   * Notify listeners
+   */
   private notifyListeners() {
     this.listeners.forEach(callback => callback());
   }
 
+  /**
+   * Subscribe to updates
+   * @param callback - The callback to subscribe to
+   * @returns The unsubscribe function
+   */
   subscribeToUpdates(callback: () => void) {
     this.listeners.push(callback);
     return () => {
@@ -190,6 +223,11 @@ export class UserService {
     };
   }
 
+  /**
+   * Add a pet
+   * @param petData - The pet data
+   * @returns The added pet
+   */
   async addPet(petData: { name: string; type: string }) {
     try {
       const { data: { user } } = await this.supabase.auth.getUser();
@@ -217,6 +255,9 @@ export class UserService {
     }
   }
 
+  /**
+   * Clear the user data
+   */
   async clearUserData() {
     // Clear all cached data
     await AsyncStorage.removeItem(CACHE_KEYS.USER_PROFILE);
@@ -228,12 +269,18 @@ export class UserService {
     await this.collectionService.resetActiveCollection();
   }
 
+  /**
+   * Handle logout
+   */
   async handleLogout() {
     await this.clearUserData();
     await this.clearCache();
     await this.supabase.auth.signOut();
   }
 
+  /**
+   * Delete the account
+   */
   async deleteAccount() {
     try {
       await this.clearUserData();
@@ -245,6 +292,11 @@ export class UserService {
     }
   }
 
+  /**
+   * Update the subscription
+   * @param subscriptionTier - The subscription tier
+   * @returns The updated subscription
+   */
   async updateSubscription(subscriptionTier: 'basic' | 'premium') {
     try {
       const { data: { session } } = await this.supabase.auth.getSession();
@@ -293,17 +345,26 @@ export class UserService {
     }
   }
 
-  // Helper method to check subscription status
+  /**
+   * Check if the subscription is premium
+   * @returns True if the subscription is premium, false otherwise
+   */
   isSubscriptionPremium(): boolean {
     return this.userCache?.subscription_tier === 'premium';
   }
 
-  // Get current subscription tier
+  /**
+   * Get the current subscription tier
+   * @returns The current subscription tier
+   */
   getSubscriptionTier(): 'basic' | 'premium' {
     return this.userCache?.subscription_tier || 'basic';
   }
 
-  // Add a new method for pull-to-refresh
+  /**
+   * Refresh the profile
+   * @returns The refreshed profile
+   */
   async refreshProfile(): Promise<void> {
     try {
       const { data: { session } } = await this.supabase.auth.getSession();

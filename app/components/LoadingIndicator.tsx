@@ -1,14 +1,16 @@
-import { View, StyleSheet, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
 import { theme } from '../styles/theme';
 
 interface LoadingIndicatorProps {
+  message?: string;
   size?: number;
   color?: string;
 }
 
 export default function LoadingIndicator({ 
+  message = 'Loading...',
   size = 40, 
   color = theme.colors.primary 
 }: LoadingIndicatorProps) {
@@ -35,13 +37,21 @@ export default function LoadingIndicator({
       <Animated.View style={{ transform: [{ rotate: spin }] }}>
         <MaterialIcons name="pets" size={size} color={color} />
       </Animated.View>
+      <Text style={styles.text}>{message}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: theme.colors.background,
+    gap: theme.spacing.lg,
+  },
+  text: {
+    fontSize: theme.typography.body.fontSize,
+    color: theme.colors.text.secondary,
   },
 }); 

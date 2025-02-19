@@ -4,14 +4,6 @@ import { getSupabase } from './supabase';
 import { API_CONFIG } from '../constants/config';
 import { mockSounds } from '../data/mockSounds';
 
-interface SoundEffect {
-  id: string;
-  name: string;
-  category: 'attention' | 'reward' | 'training';
-  uri: string;
-  isPremium: boolean;
-}
-
 interface Sound {
   id: string;
   name: string;
@@ -75,6 +67,10 @@ export class SoundService {
     this.cacheService = CacheService.getInstance();
   }
 
+  /**
+   * Get the instance of the SoundService
+   * @returns The instance of the SoundService
+   */
   static getInstance(): SoundService {
     if (!SoundService.instance) {
       SoundService.instance = new SoundService();
@@ -82,10 +78,17 @@ export class SoundService {
     return SoundService.instance;
   }
 
+  /**
+   * Check if the SoundService is initialized
+   * @returns True if the SoundService is initialized, false otherwise
+   */
   isInitialized(): boolean {
     return this.initialized;
   }
 
+  /**
+   * Initialize the SoundService
+   */
   async initialize() {
     try {
       await Audio.setAudioModeAsync({
@@ -113,6 +116,10 @@ export class SoundService {
     }
   }
 
+  /**
+   * Load a sound
+   * @param effect - The effect to load
+   */
   async loadSound(effect: { id: string; uri: any }) {
     try {
       if (this.sounds.has(effect.id)) return;
@@ -129,12 +136,17 @@ export class SoundService {
     }
   }
 
+  /**
+   * Play a sound
+   * @param effectId - The effect to play
+   */
   async playSound(effectId: string): Promise<void> {
     const sound = this.sounds.get(effectId);
     if (!sound) throw new Error(`Sound ${effectId} not loaded`);
 
     try {
-      await sound.setPositionAsync(0);
+      await sound.stopAsync(); // Stop first
+      await sound.setPositionAsync(0); // Reset position
       await sound.playAsync();
     } catch (error) {
       console.error('Error playing sound:', error);
@@ -142,11 +154,31 @@ export class SoundService {
     }
   }
 
+  /**
+   * On playback status update
+   * @param callback - The callback to call when the playback status is updated
+   */
+  onPlaybackStatusUpdate(callback: (status: any) => void) {
+    const sound = Array.from(this.sounds.values())[0];
+    if (sound) {
+      sound.setOnPlaybackStatusUpdate(callback);
+    }
+  }
+
+  /**
+   * Update the effectiveness score
+   * @param effectId - The effect to update the score for
+   */
   private updateEffectivenessScore(effectId: string) {
     const currentScore = this.effectivenessScores.get(effectId) || 0;
     this.effectivenessScores.set(effectId, currentScore + 1);
   }
 
+  /**
+   * Get the effectiveness score
+   * @param effectId - The effect to get the score for
+   * @returns The effectiveness score
+   */
   getEffectivenessScore(effectId: string): number {
     return this.effectivenessScores.get(effectId) || 0;
   }
@@ -159,13 +191,29 @@ export class SoundService {
     });
   }
 
-  async cleanup(): Promise<void> {
-    for (const sound of this.sounds.values()) {
-      await sound.unloadAsync();
+  /**
+   * Cleanup the SoundService
+   * @param unload - Whether to unload the sounds
+   */
+  async cleanup(unload = true) {
+    try {
+      // Stop playback but don't unload unless specified
+      for (const [id, sound] of this.sounds) {
+        await sound.stopAsync();
+        if (unload) {
+          await sound.unloadAsync();
+          this.sounds.delete(id);
+        }
+      }
+    } catch (error) {
+      console.error('Error cleaning up sounds:', error);
     }
-    this.sounds.clear();
   }
 
+  /**
+   * Get the default sounds
+   * @returns The default sounds
+   */
   async getDefaultSounds(): Promise<Sound[]> {
     try {
       const cached = await this.cacheService.get<Sound[]>(CACHE_KEYS.DEFAULT_SOUNDS);
@@ -184,6 +232,10 @@ export class SoundService {
     }
   }
 
+  /**
+   * Get the user collections
+   * @returns The user collections
+   */
   async getUserCollections(): Promise<SoundCollection[]> {
     try {
       const cached = await this.cacheService.get<SoundCollection[]>(CACHE_KEYS.USER_COLLECTIONS);
@@ -204,6 +256,12 @@ export class SoundService {
     }
   }
 
+  /**
+   * Create a collection
+   * @param name - The name of the collection
+   * @param sounds - The sounds to add to the collection
+   * @returns The created collection
+   */
   async createCollection(name: string, sounds: Array<{ sound_id: string; sound_type: 'default' | 'marketplace' | 'user'; order_index: number }>) {
     try {
       const { data: { user } } = await getSupabase().auth.getUser();
@@ -232,11 +290,16 @@ export class SoundService {
     }
   }
 
+  /**
+   * Set the active collection
+   * @param collectionId - The id of the collection to activate
+   */
   async setActiveCollection(collectionId: string): Promise<void> {
     try {
       const { data: { user } } = await getSupabase().auth.getUser();
       if (!user) throw new Error('No user found');
 
+      // TODO: This endpoint does not exist yet
       const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -252,6 +315,11 @@ export class SoundService {
     }
   }
 
+  /**
+   * Add sounds to a collection
+   * @param collectionId - The id of the collection to add the sounds to
+   * @param sounds - The sounds to add to the collection
+   */
   async addSoundsToCollection(collectionId: string, sounds: Array<{ sound_id: string; sound_type: 'default' | 'marketplace' | 'user' }>) {
     try {
       const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/sounds`, {
@@ -269,6 +337,11 @@ export class SoundService {
     }
   }
 
+  /**
+   * Remove sounds from a collection
+   * @param collectionId - The id of the collection to remove the sounds from
+   * @param soundIds - The ids of the sounds to remove from the collection
+   */
   async removeSoundsFromCollection(collectionId: string, soundIds: string[]) {
     try {
       const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/sounds`, {
@@ -286,6 +359,10 @@ export class SoundService {
     }
   }
 
+  /**
+   * Clear the cache
+   * @returns The cache
+   */
   async clearCache(): Promise<void> {
     this.soundCache.clear();
     this.initialized = false;
@@ -297,77 +374,9 @@ export class SoundService {
     ]);
   }
 
-  async getMarketplaceSounds(filter?: SoundFilter): Promise<Sound[]> {
-    try {
-      const cached = await this.cacheService.get<Sound[]>(CACHE_KEYS.MARKETPLACE_SOUNDS);
-      if (cached && !filter) return cached;
-
-      const queryParams = new URLSearchParams();
-      if (filter?.category) queryParams.append('category', filter.category);
-      if (filter?.isPremium !== undefined) queryParams.append('isPremium', String(filter.isPremium));
-      if (filter?.query) queryParams.append('query', filter.query);
-      if (filter?.sortBy) queryParams.append('sortBy', filter.sortBy);
-
-      const response = await fetch(`${API_CONFIG.url}/sounds/marketplace?${queryParams}`);
-      if (!response.ok) throw new Error('Failed to load marketplace sounds');
-
-      const sounds = await response.json();
-      if (!filter) {
-        await this.cacheService.set(CACHE_KEYS.MARKETPLACE_SOUNDS, sounds);
-      }
-
-      return sounds;
-    } catch (error) {
-      console.error('Error loading marketplace sounds:', error);
-      throw error;
-    }
-  }
-
-  async purchaseSound(soundId: string): Promise<void> {
-    try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
-
-      const response = await fetch(`${API_CONFIG.url}/sounds/marketplace/${soundId}/purchase`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user.id }),
-      });
-
-      if (!response.ok) throw new Error('Failed to purchase sound');
-      
-      // Invalidate relevant caches
-      await Promise.all([
-        this.cacheService.remove(CACHE_KEYS.USER_PURCHASED_SOUNDS),
-        this.cacheService.remove(CACHE_KEYS.MARKETPLACE_SOUNDS),
-      ]);
-    } catch (error) {
-      console.error('Error purchasing sound:', error);
-      throw error;
-    }
-  }
-
-  async getUserPurchasedSounds(): Promise<Sound[]> {
-    try {
-      const cached = await this.cacheService.get<Sound[]>(CACHE_KEYS.USER_PURCHASED_SOUNDS);
-      if (cached) return cached;
-
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
-
-      const response = await fetch(`${API_CONFIG.url}/users/${user.id}/purchased-sounds`);
-      if (!response.ok) throw new Error('Failed to load purchased sounds');
-
-      const sounds = await response.json();
-      await this.cacheService.set(CACHE_KEYS.USER_PURCHASED_SOUNDS, sounds);
-
-      return sounds;
-    } catch (error) {
-      console.error('Error loading purchased sounds:', error);
-      throw error;
-    }
-  }
-
+  /**
+   * Unload all sounds
+   */
   async unloadAll() {
     try {
       // Unload all sounds from memory

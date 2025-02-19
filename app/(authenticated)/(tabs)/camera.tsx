@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
+import React, { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
 import { useState, useRef, useEffect } from 'react';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -6,14 +6,12 @@ import { theme } from '../../styles/theme';
 import * as MediaLibrary from 'expo-media-library';
 import { mockSounds, Sound } from '../../data/mockSounds';
 import SoundSelector from '../../components/SoundSelector';
-import FaceDetection, { Face } from '@react-native-ml-kit/face-detection';
 import { router } from 'expo-router';
-import { getSupabase } from '../../services/supabase';
-import { API_CONFIG } from '../../constants/config';
 import { Audio } from 'expo-av';
+import LoadingIndicator from '../../components/LoadingIndicator';
 
 const BURST_COUNT = 3;
-const BURST_INTERVAL = 1; // 10ms between shots for super quick burst
+const BURST_INTERVAL = 1; // 1ms between shots for super quick burst
 
 export default function CameraScreen() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -22,57 +20,15 @@ export default function CameraScreen() {
   const cameraRef = useRef<CameraView>(null);
   const [selectedSound, setSelectedSound] = useState<Sound | null>(mockSounds[0]);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isFaceDetecting, setIsFaceDetecting] = useState(true);
   const [isBurstMode, setIsBurstMode] = useState(false);
-  const [detectedFaces, setDetectedFaces] = useState<Face[]>([]);
-  const [availableSounds, setAvailableSounds] = useState<Sound[]>([]);
-  const [activeSound, setActiveSound] = useState<Sound | null>(null);
   const [soundVolume, setSoundVolume] = useState(0.8);
-  const [isPerfectShot, setIsPerfectShot] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const init = async () => {
-      try {
-        await soundService.initialize();
-
-        await Promise.all(mockSounds.map(sound => 
-          soundService.loadSound(sound)
-        ));
-      } catch (error) {
-        console.error('Sound initialization error:', error);
-      }
-    };
-
-    init();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    loadSounds();
     return () => {
       soundRef.current?.unloadAsync();
     };
   }, []);
-
-  const loadSounds = async () => {
-    try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
-
-      const response = await fetch(`${API_CONFIG.url}/sounds/collections`);
-      const data = await response.json();
-      setAvailableSounds(data.sounds || []);
-    } catch (error) {
-      console.error('Error loading sounds:', error);
-      Alert.alert('Error', 'Failed to load attention sounds');
-    }
-  };
 
   const handleSoundSelect = async (sound: Sound) => {
     try {
@@ -93,7 +49,7 @@ export default function CameraScreen() {
         await soundRef.current.unloadAsync();
       }
       const { sound: audioSound } = await Audio.Sound.createAsync(
-        { uri: sound.url },
+        sound.uri,
         { volume: soundVolume }
       );
       soundRef.current = audioSound;
@@ -102,53 +58,6 @@ export default function CameraScreen() {
       console.error('Error playing sound:', error);
     }
   };
-
-  const processFaces = async (photo: { uri: string }) => {
-    try {
-      const faces = await FaceDetection.process(photo.uri, {
-        landmarkMode: FaceDetection.FaceLandmarkMode.NONE, // Minimal processing for speed
-        performanceMode: FaceDetection.FaceDetectorPerformanceMode.FAST,
-      });
-      
-      setDetectedFaces(faces);
-      
-      // Immediately take burst photos if any face is detected
-      if (faces.length > 0) {
-        takeBurstPhotos();
-      }
-    } catch (error) {
-      console.error('Face detection error:', error);
-    }
-  };
-
-  const startFaceDetection = async () => {
-    if (!cameraRef.current || isBurstMode) return;
-
-    try {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.5,
-        skipProcessing: true,
-      });
-      
-      await processFaces(photo);
-    } catch (error) {
-      console.error('Error in face detection:', error);
-    }
-  };
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-
-    if (isFaceDetecting && !isBurstMode) {
-      interval = setInterval(startFaceDetection, 100); // Check more frequently
-    }
-
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    };
-  }, [isFaceDetecting, isBurstMode]);
 
   const takeBurstPhotos = async () => {
     if (!cameraRef.current || isBurstMode) return;
@@ -175,7 +84,6 @@ export default function CameraScreen() {
         await playSound(selectedSound);
       }
 
-      // Navigate to photo selection screen with the photos
       router.push({
         pathname: '/(authenticated)/photo-selection',
         params: { photos: JSON.stringify(photos) }
@@ -188,28 +96,6 @@ export default function CameraScreen() {
     }
   };
 
-  const toggleFaceDetection = () => {
-    setIsFaceDetecting(!isFaceDetecting);
-  };
-
-  const handleFacesDetected = ({ faces }: { faces: Face[] }) => {
-    setDetectedFaces(faces);
-    const hasPerfectShot = analyzePetShot(faces);
-    setIsPerfectShot(hasPerfectShot);
-  };
-
-  const analyzePetShot = (faces: Face[]): boolean => {
-    if (faces.length === 0) return false;
-    
-    // Basic criteria for a "perfect shot"
-    const face = faces[0];
-    const isLookingAtCamera = Math.abs(face.headEulerAngleY || 0) < 10;
-    const isNotTilted = Math.abs(face.headEulerAngleZ || 0) < 10;
-    const hasGoodExpression = face.smilingProbability && face.smilingProbability > 0.7;
-
-    return isLookingAtCamera && isNotTilted && hasGoodExpression;
-  };
-
   const takePicture = async () => {
     if (!cameraRef.current) return;
 
@@ -217,6 +103,10 @@ export default function CameraScreen() {
       const photo = await cameraRef.current.takePictureAsync();
       const photos = [photo.uri];
       
+      if (selectedSound) {
+        await playSound(selectedSound);
+      }
+
       router.push({
         pathname: '/(authenticated)/photo-selection',
         params: { photos: JSON.stringify(photos) }
@@ -228,17 +118,7 @@ export default function CameraScreen() {
   };
 
   if (!permission?.granted) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.text}>We need your permission to use the camera</Text>
-        <Pressable
-          style={styles.button}
-          onPress={requestPermission}
-        >
-          <Text style={styles.buttonText}>Grant Permission</Text>
-        </Pressable>
-      </View>
-    );
+    return <LoadingIndicator message="Requesting camera access..." />;
   }
 
   return (
@@ -255,21 +135,6 @@ export default function CameraScreen() {
           onSelectSound={handleSoundSelect}
           isPlaying={isPlaying}
         />
-
-        {detectedFaces.map((face, index) => (
-          <View
-            key={index}
-            style={[
-              styles.faceBox,
-              {
-                left: face.boundingBox.left,
-                top: face.boundingBox.top,
-                width: face.boundingBox.width,
-                height: face.boundingBox.height,
-              },
-            ]}
-          />
-        ))}
 
         <View style={styles.controls}>
           <Pressable
@@ -290,31 +155,22 @@ export default function CameraScreen() {
               styles.captureButton,
               isBurstMode && styles.captureButtonActive,
             ]}
-            onPress={takeBurstPhotos}
+            onPress={isBurstMode ? takeBurstPhotos : takePicture}
           >
             <View style={styles.captureButtonInner} />
           </Pressable>
 
           <Pressable
-            style={[
-              styles.controlButton,
-              isFaceDetecting && styles.activeDetection,
-            ]}
-            onPress={toggleFaceDetection}
+            style={styles.controlButton}
+            onPress={() => setIsBurstMode(!isBurstMode)}
           >
             <MaterialIcons
-              name="pets"
+              name="burst-mode"
               size={32}
               color={theme.colors.text.inverse}
             />
           </Pressable>
         </View>
-
-        {isFaceDetecting && (
-          <View style={styles.detectionIndicator}>
-            <Text style={styles.detectionText}>Face Detection Active</Text>
-          </View>
-        )}
       </CameraView>
     </View>
   );
@@ -379,29 +235,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text.inverse,
     fontSize: theme.typography.body.fontSize,
   },
-  activeDetection: {
-    backgroundColor: 'rgba(0, 255, 0, 0.5)',
-  },
   captureButtonActive: {
     backgroundColor: 'rgba(255, 0, 0, 0.3)',
-  },
-  detectionIndicator: {
-    position: 'absolute',
-    top: 40,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  detectionText: {
-    color: theme.colors.text.inverse,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    padding: theme.spacing.sm,
-    borderRadius: theme.borderRadius.sm,
-  },
-  faceBox: {
-    position: 'absolute',
-    borderWidth: 2,
-    borderColor: '#00ff00',
-    backgroundColor: 'rgba(0, 255, 0, 0.1)',
   },
 });

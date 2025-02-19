@@ -13,7 +13,7 @@ export interface Sound {
 
 export const mockSounds: Sound[] = [
   {
-    id: '1',
+    id: '624f4b02-c5ae-4947-b66a-3d7d20a6d185',
     name: 'Dog',
     icon: 'pets',
     category: 'attention',
@@ -21,7 +21,7 @@ export const mockSounds: Sound[] = [
     isPremium: false,
   },
   {
-    id: '2',
+    id: '9b2581d4-b91e-4314-89f9-7ed7c9ef94d4',
     name: 'Bell',
     icon: 'notifications',
     category: 'attention',
@@ -29,7 +29,7 @@ export const mockSounds: Sound[] = [
     isPremium: true,
   },
   {
-    id: '3',
+    id: 'dafbd20c-545f-4038-8c9b-e513a93dd664',
     name: 'Whistle',
     icon: 'music-note',
     category: 'training',

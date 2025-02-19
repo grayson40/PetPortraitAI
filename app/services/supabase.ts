@@ -10,6 +10,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase configuration.');
 }
 
+/**
+ * Create the supabase client
+ * @returns The supabase client
+ */
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: {

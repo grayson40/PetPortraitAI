@@ -5,20 +5,79 @@ import { API_CONFIG } from '../constants/config';
 import { userService } from './user';
 
 export const authService = {
+  /**
+   * Sign in
+   * @param email - The email to sign in with
+   * @param password - The password to sign in with
+   * @returns The user data
+   */
   async signIn(email: string, password: string) {
-    const { data, error } = await getSupabase().auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { data, error } = await getSupabase().auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) throw error;
+      if (error) throw error;
 
-    // On sign in, go directly to main app
-    router.replace('/(authenticated)/(tabs)');
+      // Get user profile after sign in
+      const { data: { user } } = await getSupabase().auth.getUser();
+      
+      if (!user) throw new Error('No user found');
 
-    return data;
+      try {
+        // Try to get user profile
+        const response = await fetch(`${API_CONFIG.url}/users/${user.id}`);
+        
+        if (!response.ok) {
+          // If profile doesn't exist, create it
+          const createResponse = await fetch(`${API_CONFIG.url}/users`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              id: user.id,
+              email: user.email,
+              display_name: user.user_metadata?.display_name || email.split('@')[0],
+              subscription_tier: 'basic',
+              sound_volume: 80,
+            }),
+          });
+
+          if (!createResponse.ok) {
+            console.error('Failed to create user profile on sign in');
+          }
+        }
+
+        // Check if user needs onboarding
+        const needsOnboarding = await AsyncStorage.getItem('needsOnboarding');
+        if (needsOnboarding === 'true') {
+          router.replace('/onboarding');
+        } else {
+          router.replace('/(authenticated)/(tabs)');
+        }
+
+      } catch (profileError) {
+        console.error('Error handling user profile:', profileError);
+        // Even if profile fails, still navigate to main app
+        router.replace('/(authenticated)/(tabs)');
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Sign in error:', error);
+      throw error;
+    }
   },
 
+  /**
+   * Sign up
+   * @param email - The email to sign up with
+   * @param password - The password to sign up with
+   * @param name - The name to sign up with
+   * @returns The user data
+   */
   async signUp(email: string, password: string, name: string) {
     // 1. First create the auth user
     const { data: authData, error: authError } = await getSupabase().auth.signUp({
@@ -71,6 +130,9 @@ export const authService = {
     }
   },
 
+  /**
+   * Sign out
+   */
   async signOut() {
     const { error } = await getSupabase().auth.signOut();
     if (error) throw error;
@@ -82,6 +144,10 @@ export const authService = {
     router.replace('/(auth)');
   },
 
+  /**
+   * Reset password
+   * @param email - The email to reset the password for
+   */
   async resetPassword(email: string) {
     const { error } = await getSupabase().auth.resetPasswordForEmail(email, {
       redirectTo: 'petportrait://auth/reset-password',
@@ -90,6 +156,9 @@ export const authService = {
     if (error) throw error;
   },
 
+  /**
+   * Delete account
+   */
   async deleteAccount() {
     try {
       const { data: { user } } = await getSupabase().auth.getUser();

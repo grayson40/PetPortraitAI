@@ -6,10 +6,10 @@ export default {
     slug: 'pet-portrait-ai',
     version: '1.0.0',
     orientation: 'portrait',
-    icon: './assets/icon.png',
+    icon: './app/assets/icon.png',
     userInterfaceStyle: 'light',
     splash: {
-      image: './assets/splash.png',
+      image: './app/assets/splash.png',
       resizeMode: 'contain',
       backgroundColor: '#ffffff'
     },
@@ -23,7 +23,7 @@ export default {
     },
     android: {
       adaptiveIcon: {
-        foregroundImage: './assets/adaptive-icon.png',
+        foregroundImage: './app/assets/icon.png',
         backgroundColor: '#ffffff'
       },
       package: 'com.yourcompany.petportraitai'
@@ -31,6 +31,7 @@ export default {
     plugins: [
       'expo-router',
       'expo-secure-store',
+      'onnxruntime-react-native',
       [
         'expo-camera',
         {

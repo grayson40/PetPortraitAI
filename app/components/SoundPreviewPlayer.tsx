@@ -19,7 +19,6 @@ export default function SoundPreviewPlayer({
   isPlaying,
 }: SoundPreviewPlayerProps) {
   const slideAnim = useRef(new Animated.Value(100)).current;
-  // const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     if (sound) {
@@ -36,7 +35,7 @@ export default function SoundPreviewPlayer({
   }, [sound]);
 
   const getCategoryIcon = (category: string): keyof typeof MaterialIcons.glyphMap => {
-    switch (category.toLowerCase()) {
+    switch (category) {
       case 'attention': return 'notifications';
       case 'training': return 'school';
       case 'reward': return 'stars';

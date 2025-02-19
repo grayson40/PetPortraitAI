@@ -21,6 +21,11 @@ export class CacheService {
     this.config = config;
   }
 
+  /**
+   * Get the instance of the CacheService
+   * @param config - The config to use for the cache
+   * @returns The instance of the CacheService
+   */
   static getInstance(config?: CacheConfig): CacheService {
     if (!CacheService.instance) {
       CacheService.instance = new CacheService(config);
@@ -28,6 +33,12 @@ export class CacheService {
     return CacheService.instance;
   }
 
+  /**
+   * Set the cache
+   * @param key - The key to set the cache for
+   * @param data - The data to set the cache for
+   * @param customExpiration - The custom expiration time to use for the cache
+   */
   async set<T>(key: string, data: T, customExpiration?: number): Promise<void> {
     const cacheItem: CacheItem<T> = {
       data,
@@ -36,6 +47,11 @@ export class CacheService {
     await AsyncStorage.setItem(key, JSON.stringify(cacheItem));
   }
 
+  /**
+   * Get the cache
+   * @param key - The key to get the cache for
+   * @returns The cache
+   */
   async get<T>(key: string): Promise<T | null> {
     try {
       const cached = await AsyncStorage.getItem(key);
@@ -56,10 +72,17 @@ export class CacheService {
     }
   }
 
+  /**
+   * Remove the cache
+   * @param key - The key to remove the cache for
+   */
   async remove(key: string): Promise<void> {
     await AsyncStorage.removeItem(key);
   }
 
+  /**
+   * Clear the cache
+   */
   async clear(): Promise<void> {
     const keys = await AsyncStorage.getAllKeys();
     await AsyncStorage.multiRemove(keys);

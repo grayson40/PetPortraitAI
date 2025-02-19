@@ -259,7 +259,7 @@ export default function Profile() {
   };
 
   if (initialLoading) {
-    return <LoadingIndicator />;
+    return <LoadingIndicator message="Loading your profile..." />;
   }
 
   return (
