@@ -26,7 +26,7 @@ export const mockSounds: Sound[] = [
     icon: 'notifications',
     category: 'attention',
     uri: require('../assets/sounds/bell.mp3'),
-    isPremium: true,
+    isPremium: false,
   },
   {
     id: 'dafbd20c-545f-4038-8c9b-e513a93dd664',
@@ -34,6 +34,22 @@ export const mockSounds: Sound[] = [
     icon: 'music-note',
     category: 'training',
     uri: require('../assets/sounds/whistle.mp3'),
-    isPremium: true,
+    isPremium: false,
   },
+  // {
+  //   id: 'dafbd20c-545f-4038-8c9b-e513a93dd667',
+  //   name: 'Pro Bark',
+  //   icon: 'music-note',
+  //   category: 'attention',
+  //   uri: require('../assets/sounds/attention.mp3'),
+  //   isPremium: true,
+  // },
+  // {
+  //   id: 'dafbd20c-545f-4038-8c9b-e513a93dd668',
+  //   name: 'Pro Meow',
+  //   icon: 'music-note',
+  //   category: 'attention',
+  //   uri: require('../assets/sounds/attention.mp3'),
+  //   isPremium: true,
+  // },
 ]; 

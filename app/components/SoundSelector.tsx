@@ -12,7 +12,7 @@ interface SoundSelectorProps {
   selectedSound: Sound | null;
   onSelectSound: (sound: Sound) => void;
   isPlaying: boolean;
-  userTier: 'basic' | 'premium';
+  userTier?: 'basic' | 'premium';
 }
 
 export default function SoundSelector({ 
@@ -20,8 +20,18 @@ export default function SoundSelector({
   selectedSound, 
   onSelectSound,
   isPlaying,
-  userTier
+  userTier = 'basic'
 }: SoundSelectorProps) {
+  if (!sounds || sounds.length === 0) {
+    return (
+      <BlurView intensity={20} style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No sounds available</Text>
+        </View>
+      </BlurView>
+    );
+  }
+
   return (
     <BlurView intensity={20} style={styles.container}>
       <ScrollView 
@@ -31,6 +41,8 @@ export default function SoundSelector({
       >
         {sounds.map((sound) => {
           const isSelected = selectedSound?.id === sound.id;
+          const isLocked = sound.isPremium && userTier === 'basic';
+          
           return (
             <Pressable
               key={sound.id}
@@ -38,13 +50,14 @@ export default function SoundSelector({
                 styles.soundButton,
                 isSelected && styles.selectedSound,
                 isSelected && isPlaying && styles.playingSound,
-                sound.isPremium && userTier === 'basic' && styles.premiumButton
+                isLocked && styles.premiumButton
               ]}
               onPress={() => onSelectSound(sound)}
+              disabled={isLocked}
             >
               <View style={styles.iconContainer}>
                 <MaterialIcons 
-                  name={sound.icon as keyof typeof MaterialIcons.glyphMap} 
+                  name={(sound.icon as keyof typeof MaterialIcons.glyphMap) || 'music-note'} 
                   size={28} 
                   color={isSelected ? 
                     theme.colors.primary : 
@@ -64,7 +77,7 @@ export default function SoundSelector({
               >
                 {sound.name}
               </Text>
-              {sound.isPremium && userTier === 'basic' && (
+              {isLocked && (
                 <MaterialIcons 
                   name="lock" 
                   size={16} 
@@ -144,5 +157,15 @@ const styles = StyleSheet.create({
   premiumButton: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderColor: theme.colors.primary,
+    opacity: 0.7,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: theme.colors.text.inverse,
+    fontSize: theme.typography.body.fontSize,
   },
 }); 

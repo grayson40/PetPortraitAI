@@ -1,15 +1,13 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Platform, RefreshControl, Pressable, Alert, ActionSheetIOS, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, RefreshControl, Pressable, Alert, ActionSheetIOS, Image, FlatList } from 'react-native';
 import { useState, useEffect } from 'react';
 import { BlurView } from 'expo-blur';
-import { router } from 'expo-router';
 import { SoundService } from '../../services/sound';
 import { UserService } from '../../services/user';
 import { Header } from './components/Header';
 import { ActiveCollection } from './components/ActiveCollection';
 import { SoundGrid } from './components/SoundGrid';
 import LoadingIndicator from '../../components/LoadingIndicator';
-import FilterSheet from '../../components/FilterSheet';
 import { theme } from '../../styles/theme';
 import { MaterialIcons } from '@expo/vector-icons';
 import CreateCollectionModal from '../../components/CreateCollectionModal';
@@ -24,13 +22,15 @@ import SubscriptionModal from '../../components/SubscriptionModal';
 import { mockSounds } from '../../data/mockSounds';
 import { getSupabase } from '../../services/supabase';
 import EditCollectionModal from '../../components/EditCollectionModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Sound {
   id: string;
   name: string;
-  url?: string;
   category: string;
+  url?: string;
   isPremium: boolean;
+  order_index?: number;
 }
 
 interface UserProfile {
@@ -157,13 +157,14 @@ export default function SoundManagement() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [isMarketplaceVisible, setIsMarketplaceVisible] = useState(false);
-  const [selectedCollection, setSelectedCollection] = useState(null);
+  const [selectedCollection, setSelectedCollection] = useState<SoundCollection | null>(null);
   const [isCollectionModalVisible, setIsCollectionModalVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubscriptionModalVisible, setIsSubscriptionModalVisible] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const activeCollection = collections.find(c => c.is_active);
+  const [selectedCollectionSounds, setSelectedCollectionSounds] = useState<Sound[]>([]);
 
   const isPremium = userProfile?.subscription_tier === 'premium';
 
@@ -173,6 +174,15 @@ export default function SoundManagement() {
       activeFilters.includes(sound.category.toLowerCase())
     );
   }, [sounds, activeFilters]);
+
+  useEffect(() => {
+    const inspectStorage = async () => {
+      const keys = await AsyncStorage.getAllKeys();
+      const items = await AsyncStorage.multiGet(keys);
+      console.log('ASYNC STORAGE CONTENTS:', items);
+    };
+    inspectStorage();
+  }, []);
 
   const loadData = async (isInitial = false) => {
     try {
@@ -188,6 +198,17 @@ export default function SoundManagement() {
       const collectionService = CollectionService.getInstance();
       const collections = await collectionService.getUserCollections();
       setCollections(collections);
+
+      // Set active collection if exists
+      const activeCollection = collections.find(c => c.is_active);
+      if (activeCollection) {
+        setSelectedCollection(activeCollection);
+        // Load collection sounds
+        const sounds = await collectionService.getCollectionSounds(activeCollection.id);
+        setSelectedCollectionSounds(sounds);
+        await AsyncStorage.setItem('selectedCollectionSounds', JSON.stringify(sounds));
+        await AsyncStorage.setItem('activeCollectionId', activeCollection.id);
+      }
 
       // Initialize sound service with fresh data
       const soundService = SoundService.getInstance();
@@ -220,6 +241,23 @@ export default function SoundManagement() {
     return () => {
       subscription.unsubscribe();
     };
+  }, []);
+
+  useEffect(() => {
+    const initializeActiveCollection = async () => {
+      try {
+        const activeCollectionId = await AsyncStorage.getItem('activeCollectionId');
+        const storedSounds = await AsyncStorage.getItem('selectedCollectionSounds');
+        
+        if (activeCollectionId && storedSounds) {
+          setSelectedCollectionSounds(JSON.parse(storedSounds));
+        }
+      } catch (error) {
+        console.error('Error initializing active collection:', error);
+      }
+    };
+
+    initializeActiveCollection();
   }, []);
 
   const handleRefresh = async () => {
@@ -407,6 +445,15 @@ export default function SoundManagement() {
 
   const handleActiveCollectionPress = () => {
     if (activeCollection) {
+      // Set the selected collection with all required properties
+      setSelectedCollection({
+        id: activeCollection.id,
+        name: activeCollection.name,
+        is_active: activeCollection.is_active,
+        collection_sounds: activeCollection.collection_sounds || []
+      });
+      
+      // Show the edit modal
       setIsEditModalVisible(true);
     }
   };
@@ -442,11 +489,12 @@ export default function SoundManagement() {
     <>
       {/* Active Collection Card */}
       <ActiveCollection
-        collection={collections.find(c => c.is_active) || {
+        collection={activeCollection || {
+          id: '',
           name: 'Select a Collection',
-          soundCount: 0,
+          collection_sounds: [],
         }}
-        onPress={handleActiveCollectionPress}
+        onPress={activeCollection ? handleActiveCollectionPress : undefined}
       />
 
       {/* User Collections */}
@@ -696,22 +744,25 @@ export default function SoundManagement() {
         onFilterPress={() => setIsFilterSheetVisible(true)}
       />
       
-      <ScrollView 
-        style={styles.content}
+      <FlatList
+        data={[]}
+        renderItem={null}
+        ListHeaderComponent={() => (
+          <>
+            {isPremium ? (
+              renderPremiumView()
+            ) : (
+              renderBasicView()
+            )}
+          </>
+        )}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor={theme.colors.primary}
           />
         }
-      >
-        {isPremium ? (
-          renderPremiumView()
-        ) : (
-          renderBasicView()
-        )}
-      </ScrollView>
+      />
 
       {isPremium && (
         <Pressable 
@@ -750,11 +801,14 @@ export default function SoundManagement() {
         />
       )}
 
-      {activeCollection && (
+      {isEditModalVisible && selectedCollection && (
         <EditCollectionModal
           visible={isEditModalVisible}
-          onClose={() => setIsEditModalVisible(false)}
-          collection={activeCollection}
+          onClose={() => {
+            setIsEditModalVisible(false);
+            setSelectedCollection(null);
+          }}
+          collection={selectedCollection}
           onReorder={handleReorderSounds}
           onRemoveSound={handleRemoveSound}
           onAddSounds={() => {
