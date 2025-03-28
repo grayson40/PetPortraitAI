@@ -7,6 +7,7 @@ import { CollectionService } from './collection';
 interface UserProfile {
   display_name: string;
   email: string;
+  phone: string;
   subscription_tier: 'basic' | 'premium';
   created_at: string;
   pets: {
@@ -178,13 +179,20 @@ export class UserService {
    */
   async updateUserProfile(updates: Partial<UserProfile>) {
     try {
-      const { data: profile, error } = await this.supabase
-        .from('profiles')
-        .update(updates)
-        .select()
-        .single();
+      const { data: { session } } = await this.supabase.auth.getSession();  
+      if (!session?.user) throw new Error('No authenticated user');
 
-      if (error) throw error;
+      const response = await fetch(`${API_CONFIG.url}/users/${session.user.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (!response.ok) throw new Error('Failed to update profile');
+
+      const profile = await response.json();
 
       // Update cache
       await AsyncStorage.setItem(CACHE_KEYS.USER_PROFILE, JSON.stringify(profile));

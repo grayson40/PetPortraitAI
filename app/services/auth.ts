@@ -3,6 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { API_CONFIG } from '../constants/config';
 import { userService } from './user';
+import { CacheService } from './cache';
+import { UserService } from './user';
+import { SoundService } from './sound';
 
 export const authService = {
   /**
@@ -26,16 +29,13 @@ export const authService = {
       if (!user) throw new Error('No user found');
 
       try {
-        // Try to get user profile
         const response = await fetch(`${API_CONFIG.url}/users/${user.id}`);
         
         if (!response.ok) {
-          // If profile doesn't exist, create it
-          const createResponse = await fetch(`${API_CONFIG.url}/users`, {
+          // Create profile if it doesn't exist
+          await fetch(`${API_CONFIG.url}/users`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               id: user.id,
               email: user.email,
@@ -44,24 +44,14 @@ export const authService = {
               sound_volume: 80,
             }),
           });
-
-          if (!createResponse.ok) {
-            console.error('Failed to create user profile on sign in');
-          }
         }
 
-        // Check if user needs onboarding
-        const needsOnboarding = await AsyncStorage.getItem('needsOnboarding');
-        if (needsOnboarding === 'true') {
-          router.replace('/onboarding');
-        } else {
-          router.replace('/(authenticated)/(tabs)');
-        }
-
-      } catch (profileError) {
-        console.error('Error handling user profile:', profileError);
-        // Even if profile fails, still navigate to main app
-        router.replace('/(authenticated)/(tabs)');
+        // Don't navigate here - let the auth context handle navigation
+        // by reacting to the auth state change
+        
+      } catch (error) {
+        console.error('Profile error:', error);
+        // Log the error but don't navigate - let auth context handle it
       }
 
       return data;
@@ -134,14 +124,23 @@ export const authService = {
    * Sign out
    */
   async signOut() {
-    const { error } = await getSupabase().auth.signOut();
-    if (error) throw error;
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
 
-    // Clear all onboarding flags
-    await AsyncStorage.removeItem('needsOnboarding');
-    
-    // Go to landing instead of login
-    router.replace('/(auth)');
+      // Clear all storage
+      await AsyncStorage.multiRemove([
+        'needsOnboarding',
+        'user',
+      ]);
+      
+      // Navigate to auth
+      router.replace('/(auth)');
+    } catch (error) {
+      console.error('Sign out error:', error);
+      throw error;
+    }
   },
 
   /**
@@ -164,6 +163,7 @@ export const authService = {
       const { data: { user } } = await getSupabase().auth.getUser();
       const userId = user?.id as string;
 
+      // Delete user from database
       const response = await fetch(`${API_CONFIG.url}/users/${userId}`, {
         method: 'DELETE',
       });
@@ -172,15 +172,52 @@ export const authService = {
         throw new Error('Failed to delete user from the database');
       } 
 
+      // Delete auth user
       const { error } = await getSupabase().auth.admin.deleteUser(userId);
-      
       if (error) throw error;
 
-      // Clear flags and go to landing
-      await AsyncStorage.removeItem('needsOnboarding');
+      // Clear all caches
+      const cacheService = CacheService.getInstance();
+      const userService = UserService.getInstance();
+      const soundService = SoundService.getInstance();
+
+      await Promise.all([
+        cacheService.clear(),
+        userService.clearCache(),
+        soundService.clearCache(),
+      ]);
+
+      // Clear all storage
+      await AsyncStorage.multiRemove([
+        'needsOnboarding',
+        'user',
+        'collections',
+        'sounds',
+        'profile'
+      ]);
+      
+      // Navigate to auth
       router.replace('/(auth)');
     } catch (error) {
       throw new Error(`Failed to delete account: ${(error as Error).message}`);
+    }
+  },
+
+  async handleSession(session: any) {
+    if (!session) {
+      router.replace('/(auth)');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      const needsOnboarding = await AsyncStorage.getItem('needsOnboarding');
+      router.replace(needsOnboarding === 'true' ? '/onboarding' : '/(authenticated)/(tabs)');
+    } catch (error) {
+      console.error('Session handling error:', error);
+      router.replace('/(auth)');
     }
   }
 }; 

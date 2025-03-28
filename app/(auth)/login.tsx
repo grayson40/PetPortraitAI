@@ -4,7 +4,7 @@ import { authService } from '../services/auth';
 import { theme } from '../styles/theme';
 import { UserService } from '../services/user';
 import { useRouter } from 'expo-router';
-import { supabase } from '../services/supabase';
+import { useAuth } from '../context/auth';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,6 +12,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const router = useRouter();
+  const { signIn } = useAuth();
 
   const handleSubmit = async () => {
     if (!email || !password) {
@@ -21,20 +22,11 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) throw error;
-      if (!data?.session) throw new Error('No session');
-
-      // Don't initialize cache here - let the auth context handle it
-      router.replace('/(authenticated)/(tabs)');
+      await signIn(email, password);
+      // No need to manually navigate - auth context will handle this
     } catch (error) {
       console.error('Error logging in:', error);
       Alert.alert('Error', error instanceof Error ? error.message : 'Invalid email or password');
-    } finally {
       setLoading(false);
     }
   };
