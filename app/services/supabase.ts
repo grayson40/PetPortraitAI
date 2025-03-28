@@ -27,7 +27,24 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       },
       async setItem(key: string, value: string) {
         try {
-          await SecureStore.setItemAsync(key, value);
+          // For large values, verify we're not exceeding SecureStore limits
+          if (value && value.length > 2000) {
+            // Store minimal session info to avoid SecureStore size limits
+            const sessionData = JSON.parse(value);
+            const minimalSession = {
+              access_token: sessionData.access_token,
+              refresh_token: sessionData.refresh_token,
+              expires_at: sessionData.expires_at,
+              user: {
+                id: sessionData.user.id,
+                email: sessionData.user.email,
+                role: sessionData.user.role,
+              },
+            };
+            await SecureStore.setItemAsync(key, JSON.stringify(minimalSession));
+          } else {
+            await SecureStore.setItemAsync(key, value);
+          }
         } catch (e) {
           console.error('Error setting item in SecureStore:', e);
         }

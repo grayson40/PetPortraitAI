@@ -1,6 +1,7 @@
 import { getSupabase } from './supabase';
 import { SoundService } from './sound';
 import { API_CONFIG } from '../constants/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export class CollectionService {
   private static instance: CollectionService;
@@ -79,35 +80,35 @@ export class CollectionService {
    * @param id - The id of the collection
    * @returns The updated collection
    */
-  // TODO: This does not work at all
-  async setActiveCollection(id: string) {
-    const { data: { user } } = await getSupabase().auth.getUser();
-    if (!user) throw new Error('No user found');
+  async setActiveCollection(collectionId: string) {
+    try {
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No authenticated user');
 
-    const response = await fetch(`${this.apiUrl}/${id}/activate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: user.id })
-    });
+      const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/activate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ user_id: user.id }),
+      });
 
-    if (!response.ok) throw new Error('Failed to set active collection');
-    const collection = await response.json();
+      if (!response.ok) {
+        throw new Error('Failed to set active collection');
+      }
 
-    // Preload sounds for the active collection
-    // TODO: Handle sound types
-    await Promise.all(
-      collection.collection_sounds.map(({ sound }: { sound: any }) =>
-        this.soundService.loadSound({
-          id: sound.id,
-          name: sound.name,
-          category: sound.category,
-          uri: sound.url,
-          isPremium: sound.isPremium,
-        })
-      )
-    );
+      // Get the collection sounds immediately after activation
+      const soundsResponse = await this.getCollectionSounds(collectionId);
+      
+      // Store in AsyncStorage for persistence
+      await AsyncStorage.setItem('selectedCollectionSounds', JSON.stringify(soundsResponse));
+      await AsyncStorage.setItem('activeCollectionId', collectionId);
 
-    return collection;
+      return soundsResponse;
+    } catch (error) {
+      console.error('Error setting active collection:', error);
+      throw error;
+    }
   }
 
   /**
@@ -186,5 +187,27 @@ export class CollectionService {
     if (!response.ok) {
       throw new Error('Failed to reorder sounds');
     }
+  }
+
+  async getCollectionSounds(collectionId: string) {
+    const { data: { user } } = await getSupabase().auth.getUser();
+    if (!user) throw new Error('No authenticated user');
+
+    const response = await fetch(`${API_CONFIG.url}/sounds/collections/${collectionId}/sounds`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch collection sounds');
+    }
+
+    const data = await response.json();
+    
+    // Transform the collection sounds into the expected format
+    return data.map((cs: any) => ({
+      id: cs.sound.id,
+      name: cs.sound.name,
+      category: cs.sound.category || 'default',
+      uri: cs.sound.url?.replace('freesound.org', 'cdn.freesound.org/sounds'),
+      isPremium: cs.sound.isPremium || false,
+      order_index: cs.order_index
+    }));
   }
 } 

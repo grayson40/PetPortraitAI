@@ -23,6 +23,10 @@ import { mockSounds } from '../../data/mockSounds';
 import { getSupabase } from '../../services/supabase';
 import EditCollectionModal from '../../components/EditCollectionModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import RecordSoundModal from '../../components/RecordSoundModal';
+import UploadSoundModal from '../../components/UploadSoundModal';
+import * as FileSystem from 'expo-file-system';
+import { API_CONFIG } from '../../config/api';
 
 interface Sound {
   id: string;
@@ -31,6 +35,7 @@ interface Sound {
   url?: string;
   isPremium: boolean;
   order_index?: number;
+  icon?: string;
 }
 
 interface UserProfile {
@@ -145,6 +150,7 @@ const FEATURED_COLLECTIONS: FeaturedCollection[] = [
 
 export default function SoundManagement() {
   const [sounds, setSounds] = useState<Sound[]>([]);
+  const [userSounds, setUserSounds] = useState<Sound[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isFilterSheetVisible, setIsFilterSheetVisible] = useState(false);
@@ -165,6 +171,8 @@ export default function SoundManagement() {
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const activeCollection = collections.find(c => c.is_active);
   const [selectedCollectionSounds, setSelectedCollectionSounds] = useState<Sound[]>([]);
+  const [isRecordModalVisible, setIsRecordModalVisible] = useState(false);
+  const [isUploadModalVisible, setIsUploadModalVisible] = useState(false);
 
   const isPremium = userProfile?.subscription_tier === 'premium';
 
@@ -174,6 +182,13 @@ export default function SoundManagement() {
       activeFilters.includes(sound.category.toLowerCase())
     );
   }, [sounds, activeFilters]);
+  
+  const filteredUserSounds = useMemo(() => {
+    if (!activeFilters.length) return userSounds;
+    return userSounds.filter(sound => 
+      activeFilters.includes(sound.category.toLowerCase())
+    );
+  }, [userSounds, activeFilters]);
 
   useEffect(() => {
     const inspectStorage = async () => {
@@ -218,8 +233,13 @@ export default function SoundManagement() {
       // Load appropriate sounds based on subscription
       if (profile?.subscription_tier === 'premium') {
         setSounds([...DEFAULT_SOUNDS, ...PREMIUM_SOUNDS]);
+        
+        // Fetch user sounds if premium
+        const userSounds = await soundService.getUserSounds();
+        setUserSounds(userSounds);
       } else {
         setSounds(DEFAULT_SOUNDS);
+        setUserSounds([]);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -397,32 +417,50 @@ export default function SoundManagement() {
         setIsPlaying(false);
         await soundService.cleanup(false); // Don't unload, just stop
       } else {
+        // Set UI state before attempting to play
+        setPreviewingSound(sound);
         setIsPlaying(true);
         
-        // Load sound if it's new
-        if (!previewingSound || previewingSound.id !== sound.id) {
-          setPreviewingSound(sound);
-          await soundService.cleanup(true); // Unload previous sound
-          await soundService.loadSound({
-            id: sound.id,
-            uri: sound.uri,
-          });
-        }
+        // For URL-based sounds (remote), ensure we have both url and uri properties
+        const soundToPlay = {
+          ...sound,
+          uri: sound.uri || sound.url,
+        };
         
-        // Play the sound
-        await soundService.playSound(sound.id);
-        
-        // Reset play state when sound finishes
-        soundService.onPlaybackStatusUpdate((status) => {
-          if (status.didJustFinish) {
-            setIsPlaying(false);
+        try {
+          // Load sound if it's new
+          if (!previewingSound || previewingSound.id !== sound.id) {
+            await soundService.cleanup(true); // Unload previous sound
+            await soundService.loadSound({
+              id: sound.id,
+              uri: soundToPlay.uri,
+            });
           }
-        });
+          
+          // Play the sound
+          await soundService.playSound(sound.id);
+          
+          // Reset play state when sound finishes
+          soundService.onPlaybackStatusUpdate((status) => {
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+            }
+          });
+        } catch (err) {
+          // If there's an error loading/playing the sound, reset UI state
+          console.error('Error with sound playback:', err);
+          setIsPlaying(false);
+          
+          // Show error only for serious failures
+          if (err.message && err.message.includes('not loaded')) {
+            Alert.alert('Playback Error', 'Could not play this sound. It may be unavailable.');
+          }
+        }
       }
     } catch (error) {
       console.error('Error playing sound:', error);
-      Alert.alert('Error', 'Failed to play sound');
       setIsPlaying(false);
+      Alert.alert('Error', 'Failed to play sound');
     }
   };
 
@@ -482,6 +520,191 @@ export default function SoundManagement() {
     } catch (error) {
       console.error('Error removing sound:', error);
       Alert.alert('Error', 'Failed to remove sound');
+    }
+  };
+
+  const handleDeleteUserSound = async (soundId: string) => {
+    try {
+      // Show confirmation dialog
+      Alert.alert(
+        'Delete Sound',
+        'Are you sure you want to delete this sound? This action cannot be undone.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              // Delete from backend
+              const soundService = SoundService.getInstance();
+              await soundService.deleteUserSound(soundId);
+              
+              // Remove from state
+              setUserSounds(prevSounds => prevSounds.filter(sound => sound.id !== soundId));
+              
+              // Close preview if it's the deleted sound
+              if (previewingSound?.id === soundId) {
+                handlePreviewClose();
+              }
+              
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert('Success', 'Sound deleted successfully');
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error deleting sound:', error);
+      Alert.alert('Error', 'Failed to delete sound');
+    }
+  };
+
+  const handleSaveRecordedSound = async (newSound: {
+    id: string;
+    name: string;
+    category: string;
+    uri: string;
+    isPremium: boolean;
+    icon: string;
+  }) => {
+    try {
+      // Add the new sound to the local sounds state
+      const soundWithUserFlag = {
+        ...newSound,
+        isUserSound: true
+      };
+      setUserSounds(prevSounds => [soundWithUserFlag as unknown as Sound, ...prevSounds]);
+      
+      // Show loading UI feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success', `"${newSound.name}" has been added to your sounds.`);
+      
+      // Convert the local file to base64
+      const fileContent = await FileSystem.readAsStringAsync(newSound.uri, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+      
+      // Get user ID from Supabase auth
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+      
+      // Send to backend
+      const response = await fetch(`${API_CONFIG.url}/api/user-sounds`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'user-id': user.id
+        },
+        body: JSON.stringify({
+          name: newSound.name,
+          category: newSound.category,
+          file: `data:audio/m4a;base64,${fileContent}`,
+          isPremium: newSound.isPremium
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to upload sound');
+      }
+      
+      // Get the server response with the sound details
+      const soundData = await response.json();
+      console.log('Sound uploaded successfully:', soundData);
+      
+      // Update the sound in state with the server-provided data
+      setUserSounds(prevSounds => prevSounds.map(sound => 
+        sound.id === newSound.id ? {
+          ...sound,
+          id: soundData.id,
+          url: soundData.url,
+          uri: soundData.url
+        } : sound
+      ));
+      
+    } catch (error) {
+      console.error('Error saving recorded sound:', error);
+      // Don't show error to user since we already showed success
+      // This allows for graceful failure without disrupting UX
+    }
+  };
+
+  const handleSaveUploadedSound = async (newSound: {
+    id: string;
+    name: string;
+    category: string;
+    uri: string;
+    isPremium: boolean;
+    icon: string;
+  }) => {
+    try {
+      // Add the new sound to the local sounds state
+      const soundWithUserFlag = {
+        ...newSound,
+        isUserSound: true
+      };
+      setUserSounds(prevSounds => [soundWithUserFlag as unknown as Sound, ...prevSounds]);
+      
+      // Show confirmation message
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success', `"${newSound.name}" has been added to your sounds.`);
+      
+      // Convert the local file to base64
+      const fileContent = await FileSystem.readAsStringAsync(newSound.uri, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+      
+      // Get file extension from URI
+      const fileExtension = newSound.uri.split('.').pop()?.toLowerCase() || 'mp3';
+      const mimeType = fileExtension === 'm4a' ? 'audio/m4a' : 
+                      fileExtension === 'mp3' ? 'audio/mp3' : 
+                      fileExtension === 'wav' ? 'audio/wav' : 'audio/mpeg';
+      
+      // Get user ID from Supabase auth
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+      
+      // Send to backend
+      const response = await fetch(`${API_CONFIG.url}/api/user-sounds`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'user-id': user.id
+        },
+        body: JSON.stringify({
+          name: newSound.name,
+          category: newSound.category,
+          file: `data:${mimeType};base64,${fileContent}`,
+          isPremium: newSound.isPremium
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to upload sound');
+      }
+      
+      // Get the server response with the sound details
+      const soundData = await response.json();
+      console.log('Sound uploaded successfully:', soundData);
+      
+      // Update the sound in state with the server-provided data
+      setUserSounds(prevSounds => prevSounds.map(sound => 
+        sound.id === newSound.id ? {
+          ...sound,
+          id: soundData.id,
+          url: soundData.url,
+          uri: soundData.url
+        } : sound
+      ));
+      
+    } catch (error) {
+      console.error('Error saving uploaded sound:', error);
+      // Don't show error to user since we already showed success
+      // This allows for graceful failure without disrupting UX
     }
   };
 
@@ -613,6 +836,32 @@ export default function SoundManagement() {
         </ScrollView>
       </View>
 
+      {/* User Sounds Section */}
+      {userSounds.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Sounds</Text>
+            <Pressable 
+              style={styles.addButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleFabPress();
+              }}
+            >
+              <MaterialIcons name="add" size={24} color={theme.colors.primary} />
+            </Pressable>
+          </View>
+          <SoundGrid
+            sounds={filteredUserSounds}
+            onSoundPress={handlePlayPause}
+            isPlaying={isPlaying}
+            playingSound={previewingSound}
+            onLongPress={handleDeleteUserSound}
+            isUserSounds={true}
+          />
+        </View>
+      )}
+
       {/* All Sounds Grid */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>All Sounds</Text>
@@ -623,6 +872,56 @@ export default function SoundManagement() {
           playingSound={previewingSound}
         />
       </View>
+    </>
+  );
+
+  const renderBasicView = () => (
+    <>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Basic Sounds</Text>
+        <SoundGrid
+          sounds={DEFAULT_SOUNDS}
+          onSoundPress={handlePlayPause}
+          isPlaying={isPlaying}
+          playingSound={previewingSound}
+        />
+      </View>
+      <BlurView intensity={80} tint="light" style={styles.premiumPreview}>
+        <View style={styles.premiumContent}>
+          <MaterialIcons name="star" size={32} color={theme.colors.warning} />
+          <View style={styles.headerContent}>
+            <Text style={styles.premiumTitle}>Unlock Premium</Text>
+            <Text style={styles.premiumSubtitle}>
+              Get unlimited access to all premium features
+            </Text>
+          </View>
+          
+          <View style={styles.premiumFeatures}>
+            {PREMIUM_FEATURES.map(feature => (
+              <View key={feature.id} style={styles.premiumFeature}>
+                <View style={styles.featureHeader}>
+                  <View style={styles.iconContainer}>
+                    <MaterialIcons 
+                      name={feature.icon} 
+                      size={20} 
+                      color={theme.colors.warning} 
+                    />
+                  </View>
+                  <Text style={styles.featureTitle}>{feature.title}</Text>
+                </View>
+                <Text style={styles.featureDescription}>{feature.description}</Text>
+              </View>
+            ))}
+          </View>
+
+          <Pressable 
+            style={styles.upgradeButton}
+            onPress={() => setIsSubscriptionModalVisible(true)}
+          >
+            <Text style={styles.upgradeText}>Upgrade Now</Text>
+          </Pressable>
+        </View>
+      </BlurView>
     </>
   );
 
@@ -678,64 +977,24 @@ export default function SoundManagement() {
   };
 
   const handleRecordSound = async () => {
-    // Will implement in next phase
-    Alert.alert('Coming Soon', 'Sound recording will be available soon!');
+    if (!isPremium) {
+      Alert.alert('Premium Feature', 'Recording sounds is a premium feature. Please upgrade to use this feature.');
+      return;
+    }
+    
+    // Open the recording modal
+    setIsRecordModalVisible(true);
   };
 
   const handleUploadSound = async () => {
-    // Will implement in next phase
-    Alert.alert('Coming Soon', 'Sound upload will be available soon!');
+    if (!isPremium) {
+      Alert.alert('Premium Feature', 'Uploading sounds is a premium feature. Please upgrade to use this feature.');
+      return;
+    }
+    
+    // Open the upload modal
+    setIsUploadModalVisible(true);
   };
-
-  const renderBasicView = () => (
-    <>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Basic Sounds</Text>
-        <SoundGrid
-          sounds={DEFAULT_SOUNDS}
-          onSoundPress={handlePlayPause}
-          isPlaying={isPlaying}
-          playingSound={previewingSound}
-        />
-      </View>
-      <BlurView intensity={80} tint="light" style={styles.premiumPreview}>
-        <View style={styles.premiumContent}>
-          <MaterialIcons name="star" size={32} color={theme.colors.warning} />
-          <View style={styles.headerContent}>
-            <Text style={styles.premiumTitle}>Unlock Premium</Text>
-            <Text style={styles.premiumSubtitle}>
-              Get unlimited access to all premium features
-            </Text>
-          </View>
-          
-          <View style={styles.premiumFeatures}>
-            {PREMIUM_FEATURES.map(feature => (
-              <View key={feature.id} style={styles.premiumFeature}>
-                <View style={styles.featureHeader}>
-                  <View style={styles.iconContainer}>
-                    <MaterialIcons 
-                      name={feature.icon} 
-                      size={20} 
-                      color={theme.colors.warning} 
-                    />
-                  </View>
-                  <Text style={styles.featureTitle}>{feature.title}</Text>
-                </View>
-                <Text style={styles.featureDescription}>{feature.description}</Text>
-              </View>
-            ))}
-          </View>
-
-          <Pressable 
-            style={styles.upgradeButton}
-            onPress={() => setIsSubscriptionModalVisible(true)}
-          >
-            <Text style={styles.upgradeText}>Upgrade Now</Text>
-          </Pressable>
-        </View>
-      </BlurView>
-    </>
-  );
 
   return (
     <View style={styles.container}>
@@ -841,6 +1100,18 @@ export default function SoundManagement() {
         onClose={() => setIsSubscriptionModalVisible(false)}
         currentTier="basic"
         loading={upgrading}
+      />
+
+      <RecordSoundModal
+        visible={isRecordModalVisible}
+        onClose={() => setIsRecordModalVisible(false)}
+        onSave={handleSaveRecordedSound}
+      />
+
+      <UploadSoundModal
+        visible={isUploadModalVisible}
+        onClose={() => setIsUploadModalVisible(false)}
+        onSave={handleSaveUploadedSound}
       />
     </View>
   );

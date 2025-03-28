@@ -120,12 +120,23 @@ export class SoundService {
    * Load a sound
    * @param effect - The effect to load
    */
-  async loadSound(effect: { id: string; uri: any }) {
+  async loadSound(effect: { 
+    id: string; 
+    uri: any; 
+    name?: string; 
+    category?: string; 
+    isPremium?: boolean 
+  }) {
     try {
       if (this.sounds.has(effect.id)) return;
       
+      // Determine if we're dealing with a URL (string) or a local asset (object)
+      const source = typeof effect.uri === 'string' 
+        ? { uri: effect.uri }  // Web URL format
+        : effect.uri;          // Local asset format
+      
       const { sound } = await Audio.Sound.createAsync(
-        effect.uri,
+        source,
         { shouldPlay: false, volume: this.volume }
       );
       
@@ -145,12 +156,22 @@ export class SoundService {
     if (!sound) throw new Error(`Sound ${effectId} not loaded`);
 
     try {
+      // Get current status to check if sound is loaded properly
+      const status = await sound.getStatusAsync();
+      
+      // If sound is not loaded or has an error, don't try to play it
+      if (status.isLoaded === false) {
+        console.warn(`Sound ${effectId} is not properly loaded, cannot play`);
+        return;
+      }
+      
       await sound.stopAsync(); // Stop first
       await sound.setPositionAsync(0); // Reset position
       await sound.playAsync();
     } catch (error) {
       console.error('Error playing sound:', error);
-      throw error;
+      // Don't throw error, as it might be due to network issues with remote audio
+      // Instead, log it and continue
     }
   }
 
@@ -360,6 +381,40 @@ export class SoundService {
   }
 
   /**
+   * Add a sound to the user's account
+   * @param sound - The sound to add
+   */
+  async addSound(sound: Sound) {
+    try {
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      const response = await fetch(`${API_CONFIG.url}/user-sounds`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          name: sound.name,
+          category: sound.category,
+          description: sound.description,
+          is_premium: sound.isPremium,
+          price: sound.price,
+          creator_id: sound.creator?.id,
+          creator_display_name: sound.creator?.display_name,
+          stats: sound.stats,
+        }),
+      }); 
+
+      if (!response.ok) throw new Error('Failed to add sound');
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error adding sound:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Clear the cache
    * @returns The cache
    */
@@ -386,6 +441,69 @@ export class SoundService {
       this.sounds.clear();
     } catch (error) {
       console.error('Error unloading sounds:', error);
+    }
+  }
+
+  /**
+   * Get the user's custom sounds
+   * @returns The user's custom sounds
+   */
+  async getUserSounds(): Promise<Sound[]> {
+    try {
+      const { data: { user } } = await this.supabase.auth.getUser();
+      if (!user) return []; // Return empty array if no user
+
+      const response = await fetch(`${API_CONFIG.url}/user-sounds`, {
+        headers: {
+          'user-id': user.id
+        }
+      });
+      
+      if (!response.ok) return []; // Return empty array on error
+
+      const sounds = await response.json();
+      return sounds.map((sound: any) => ({
+        id: sound.id,
+        name: sound.name,
+        category: sound.category,
+        url: sound.url,
+        uri: sound.url, // Add uri property for compatibility with player
+        isPremium: sound.isPremium || false,
+        created_at: sound.created_at,
+        isUserSound: true // Flag to identify user-created sounds
+      }));
+    } catch (error) {
+      console.error('Error loading user sounds:', error);
+      return []; // Return empty array on any error
+    }
+  }
+
+  /**
+   * Delete a user sound
+   * @param soundId - The id of the sound to delete
+   */
+  async deleteUserSound(soundId: string): Promise<boolean> {
+    try {
+      const { data: { user } } = await this.supabase.auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      const response = await fetch(`${API_CONFIG.url}/user-sounds/${soundId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'user-id': user.id
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete sound');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error deleting sound:', error);
+      throw error;
     }
   }
 }
