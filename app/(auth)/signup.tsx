@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -11,11 +11,14 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Platform,
+  BackHandler,
 } from 'react-native';
 import { theme } from '../styles/theme';
 import { useAuth } from '../context/auth';
 import * as Haptics from 'expo-haptics';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 type Step = 'name' | 'email' | 'password';
@@ -26,18 +29,58 @@ export default function SignUp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const { signUp } = useAuth();
+  const router = useRouter();
 
   const slideX = useRef(new Animated.Value(0)).current;
   const inputScale = useRef(new Animated.Value(1)).current;
   const titleOpacity = useRef(new Animated.Value(1)).current;
+  const inputRef = useRef<TextInput>(null);
 
-  const animateToNextStep = (nextStep: Step) => {
+  // After animation, focus on the input field
+  useEffect(() => {
+    // Short delay to ensure animation completes and view is ready
+    const timer = setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, 300);
+    
+    return () => clearTimeout(timer);
+  }, [step]);
+
+  // Monitor keyboard visibility
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => {
+        setKeyboardVisible(true);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
+  const animateToStep = (nextStep: Step, isGoingBack = false) => {
     Haptics.selectionAsync();
+    
+    // Choose direction based on navigation direction
+    const slideOutValue = isGoingBack ? 50 : -50;
+    const slideInValue = isGoingBack ? -50 : 50;
     
     Animated.parallel([
       Animated.timing(slideX, {
-        toValue: -50,
+        toValue: slideOutValue,
         duration: 200,
         useNativeDriver: true,
       }),
@@ -53,7 +96,7 @@ export default function SignUp() {
       }),
     ]).start(() => {
       setStep(nextStep);
-      slideX.setValue(50);
+      slideX.setValue(slideInValue);
       inputScale.setValue(0.95);
       
       Animated.parallel([
@@ -78,7 +121,7 @@ export default function SignUp() {
     });
   };
 
-  const validateAndNext = () => {
+  const goToNextStep = () => {
     switch (step) {
       case 'name':
         if (!name.trim()) {
@@ -86,14 +129,14 @@ export default function SignUp() {
           Alert.alert('Error', 'Please enter your name');
           return;
         }
-        animateToNextStep('email');
+        animateToStep('email');
         break;
       case 'email':
         if (!email.trim() || !EMAIL_REGEX.test(email)) {
           Alert.alert('Error', 'Please enter a valid email');
           return;
         }
-        animateToNextStep('password');
+        animateToStep('password');
         break;
       case 'password':
         if (password.length < 6) {
@@ -104,6 +147,42 @@ export default function SignUp() {
         break;
     }
   };
+
+  const goToPreviousStep = () => {
+    switch (step) {
+      case 'email':
+        animateToStep('name', true);
+        break;
+      case 'password':
+        animateToStep('email', true);
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Handle hardware back button (Android)
+  useEffect(() => {
+    const handleBackPress = () => {
+      // If on first step, let the default behavior happen (go back to index)
+      if (step === 'name') {
+        return false; // Don't intercept, allow default navigation
+      }
+      
+      // Otherwise go to the previous step
+      goToPreviousStep();
+      return true; // Prevent default back behavior
+    };
+
+    // For Android hardware back button
+    if (Platform.OS === 'android') {
+      const backHandler = BackHandler.addEventListener(
+        'hardwareBackPress',
+        handleBackPress
+      );
+      return () => backHandler.remove();
+    }
+  }, [step]);
 
   const handleSubmit = async () => {
     try {
@@ -124,25 +203,25 @@ export default function SignUp() {
   const renderStep = () => {
     const stepContent = {
       name: {
-        icon: 'person-outline',
+        icon: 'person-outline' as keyof typeof MaterialIcons.glyphMap,
         title: "Hi! What's your name?",
         subtitle: "Let's personalize your experience",
         placeholder: "Enter your name",
-        returnKeyType: 'next',
+        returnKeyType: 'next' as const,
       },
       email: {
-        icon: 'mail-outline',
+        icon: 'mail-outline' as keyof typeof MaterialIcons.glyphMap,
         title: "What's your email?",
         subtitle: "You'll use this to sign in",
         placeholder: "Enter your email",
-        returnKeyType: 'next',
+        returnKeyType: 'next' as const,
       },
       password: {
-        icon: 'lock-outline',
+        icon: 'lock-outline' as keyof typeof MaterialIcons.glyphMap,
         title: "Create a password",
         subtitle: "Use at least 6 characters",
         placeholder: "Enter your password",
-        returnKeyType: 'done',
+        returnKeyType: 'done' as const,
       },
     };
 
@@ -163,6 +242,7 @@ export default function SignUp() {
               color={theme.colors.primary} 
             />
           </View>
+          
           <Text style={styles.title}>{content.title}</Text>
           <Text style={styles.subtitle}>{content.subtitle}</Text>
         </Animated.View>
@@ -183,6 +263,7 @@ export default function SignUp() {
               style={styles.inputIcon}
             />
             <TextInput
+              ref={inputRef}
               style={styles.input}
               placeholder={content.placeholder}
               value={step === 'name' ? name : step === 'email' ? email : password}
@@ -191,9 +272,9 @@ export default function SignUp() {
               keyboardType={step === 'email' ? "email-address" : "default"}
               secureTextEntry={step === 'password'}
               editable={!loading}
-              onSubmitEditing={validateAndNext}
+              onSubmitEditing={goToNextStep}
               returnKeyType={content.returnKeyType}
-              autoFocus={true}
+              autoFocus={false} // We handle focus in useEffect
               enablesReturnKeyAutomatically={true}
               placeholderTextColor={theme.colors.text.secondary + '80'}
             />
@@ -205,18 +286,38 @@ export default function SignUp() {
 
   return (
     <View style={styles.container}>
+      {/* Use Stack.Screen to set header options */}
+      <Stack.Screen
+        options={{
+          headerBackVisible: step === 'name',
+          headerLeft: step !== 'name' ? () => (
+            <Pressable 
+              onPress={goToPreviousStep}
+              style={{ padding: 8 }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MaterialIcons name="arrow-back" size={24} color={theme.colors.text.primary} />
+            </Pressable>
+          ) : undefined,
+        }}
+      />
+
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         <View style={styles.formContainer}>
           {renderStep()}
         </View>
 
-        <View style={styles.buttonContainer}>
+        <View style={[
+          styles.buttonContainer, 
+          keyboardVisible && Platform.OS === 'android' && { paddingBottom: theme.spacing.xxl }
+        ]}>
           <Pressable 
             style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={validateAndNext}
+            onPress={goToNextStep}
             disabled={loading}
           >
             {loading ? (
