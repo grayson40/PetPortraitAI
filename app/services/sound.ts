@@ -3,6 +3,7 @@ import { CacheService } from './cache';
 import { getSupabase } from './supabase';
 import { API_CONFIG } from '../constants/config';
 import { mockSounds } from '../data/mockSounds';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Sound {
   id: string;
@@ -98,6 +99,9 @@ export class SoundService {
         shouldDuckAndroid: true,
       });
 
+      // Load user volume setting
+      await this.syncVolumeFromSettings();
+
       // Load mock sounds on initialization
       await Promise.all(
         mockSounds.map(sound => this.loadSound({
@@ -113,6 +117,26 @@ export class SoundService {
       console.error('Error initializing sound service:', error);
       this.initialized = false;
       throw error;
+    }
+  }
+
+  /**
+   * Sync volume setting from user profile
+   */
+  async syncVolumeFromSettings() {
+    try {
+      const userProfileString = await AsyncStorage.getItem('user_profile');
+      if (userProfileString) {
+        const userProfile = JSON.parse(userProfileString);
+        if (userProfile && userProfile.sound_volume !== undefined) {
+          // Convert from percentage (0-100) to decimal (0-1)
+          const volumeDecimal = Math.max(0, Math.min(1, userProfile.sound_volume / 100));
+          this.setVolume(volumeDecimal);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading volume from settings:', error);
+      // Use default volume if there's an error
     }
   }
 
@@ -156,6 +180,9 @@ export class SoundService {
     if (!sound) throw new Error(`Sound ${effectId} not loaded`);
 
     try {
+      // Sync volume before playing
+      await this.syncVolumeFromSettings();
+      
       // Get current status to check if sound is loaded properly
       const status = await sound.getStatusAsync();
       
@@ -164,6 +191,9 @@ export class SoundService {
         console.warn(`Sound ${effectId} is not properly loaded, cannot play`);
         return;
       }
+      
+      // Ensure sound has correct volume
+      await sound.setVolumeAsync(this.volume);
       
       await sound.stopAsync(); // Stop first
       await sound.setPositionAsync(0); // Reset position

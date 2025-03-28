@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { theme } from '../../../styles/theme';
 import { getSupabase } from '../../../services/supabase';
 import { API_CONFIG } from '../../../constants/config';
+import { userService } from '../../../services/user';
 
 interface EditProfileForm {
   displayName: string;
@@ -27,18 +28,12 @@ export default function EditProfile() {
 
   const loadUserProfile = async () => {
     try {
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
-
-      const response = await fetch(`${API_CONFIG.url}/users/${user.id}`);
-      const userData = await response.json();
-
-      if (!response.ok) throw new Error('Failed to load user data');
+      const userData = await userService.getUserProfile();
 
       setForm({
         displayName: userData.display_name || '',
         phone: userData.phone || '',
-        email: user.email || '',
+        email: userData.email || '',
       });
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -51,33 +46,28 @@ export default function EditProfile() {
   const handleSave = async () => {
     try {
       setLoading(true);
-      const { data: { user } } = await getSupabase().auth.getUser();
-      if (!user) throw new Error('No user found');
+      const userData = await userService.getUserProfile();
 
-      // Update Supabase auth email if changed
-      if (user.email !== form.email) {
+      console.log('userData', userData);
+      console.log('form', form);
+
+      // Update auth email if changed
+      if (userData.email !== form.email) {
         const { error: emailError } = await getSupabase().auth.updateUser({
           email: form.email,
         });
         if (emailError) throw emailError;
       }
 
-      // Update user profile in your API
-      const response = await fetch(`${API_CONFIG.url}/users/${user.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          display_name: form.displayName.trim(),
-          email: form.email.trim(),
-        }),
+      // Update user profile
+      await userService.updateUserProfile({
+        display_name: form.displayName,
+        phone: form.phone,
+        email: form.email,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to update profile');
-      }
+      // Refresh user profile
+      await userService.refreshProfile();
 
       Alert.alert('Success', 'Profile updated successfully', [
         { text: 'OK', onPress: () => router.back() }

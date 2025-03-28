@@ -41,7 +41,7 @@ export function Header({ onFilterPress, isPremium }: HeaderProps) {
           {getGreeting()}, {displayName}! 👋
         </Text>
         <Text style={styles.subtitle}>
-          Ready to play some sounds?
+          Ready to capture your pet's attention?
         </Text>
       </View>
     </View>

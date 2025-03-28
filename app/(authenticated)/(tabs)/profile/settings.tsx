@@ -7,6 +7,7 @@ import { getSupabase } from '../../../services/supabase';
 import { API_CONFIG } from '../../../constants/config';
 import Slider from '@react-native-community/slider';
 import SubscriptionModal from '../../../components/SubscriptionModal';
+import { SoundService } from '../../../services/sound';
 
 interface UserSettings {
   sound_volume: number;
@@ -18,6 +19,8 @@ export default function Settings() {
   const [loading, setLoading] = useState(false);
   const [isSubscriptionModalVisible, setIsSubscriptionModalVisible] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
+  const [volumeChanged, setVolumeChanged] = useState(false);
+  const [currentVolume, setCurrentVolume] = useState<number>(0);
 
   useEffect(() => {
     loadSettings();
@@ -45,49 +48,66 @@ export default function Settings() {
       if (!response.ok) throw new Error('Failed to load settings');
 
       const data = await response.json();
+      const volume = data.sound_volume || 80;
       setSettings({
-        sound_volume: data.sound_volume || 80,
+        sound_volume: volume,
         subscription_tier: data.subscription_tier || 'basic',
       });
+      setCurrentVolume(volume);
+      setVolumeChanged(false);
     } catch (error) {
       console.error('Error loading settings:', error);
       Alert.alert('Error', 'Failed to load settings');
     }
   };
 
-  const handleVolumeChange = async (value: number) => {
+  const handleVolumeChange = (value: number) => {
+    // Only update local state
+    setCurrentVolume(value);
+    // Mark as changed if different from saved value
+    if (value !== settings?.sound_volume) {
+      setVolumeChanged(true);
+    } else {
+      setVolumeChanged(false);
+    }
+  };
+
+  const saveVolumeSettings = async () => {
     try {
       setLoading(true);
       const { data: { session } } = await getSupabase().auth.getSession();
       if (!session?.user) throw new Error('No user found');
 
-      // Update local state immediately for better UX
-      setSettings(prev => prev ? { ...prev, sound_volume: value } : null);
-
-      // Debounce the API call
-      if (loading) return;
-
       const response = await fetch(`${API_CONFIG.url}/users/${session.user.id}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({ 
-          sound_volume: Math.round(value) 
+          sound_volume: Math.round(currentVolume) 
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
         console.error('Volume update error:', errorData);
-        // Revert on error
-        setSettings(prev => prev ? { ...prev, sound_volume: prev.sound_volume } : null);
         throw new Error(errorData.message || 'Failed to update volume');
       }
+
+      // Update saved settings
+      const updatedVolume = Math.round(currentVolume);
+      setSettings(prev => prev ? { ...prev, sound_volume: updatedVolume } : null);
+      setVolumeChanged(false);
+      
+      // Update sound service volume
+      const soundService = SoundService.getInstance();
+      soundService.setVolume(updatedVolume / 100); // Convert to decimal for sound service
+      
+      Alert.alert('Success', 'Volume settings saved');
     } catch (error) {
       console.error('Error updating volume:', error);
-      // Don't show alert for every update attempt
+      Alert.alert('Error', 'Failed to save volume settings');
     } finally {
       setLoading(false);
     }
@@ -113,12 +133,23 @@ export default function Settings() {
             style={styles.slider}
             minimumValue={0}
             maximumValue={100}
-            value={settings?.sound_volume || 80}
+            value={currentVolume || settings?.sound_volume || 80}
             onValueChange={handleVolumeChange}
             minimumTrackTintColor={theme.colors.primary}
             maximumTrackTintColor={theme.colors.border}
           />
-          <Text style={styles.volumeText}>{Math.round(settings?.sound_volume || 80)}%</Text>
+          <View style={styles.volumeContainer}>
+            <Text style={styles.volumeText}>{Math.round(currentVolume || settings?.sound_volume || 80)}%</Text>
+            {volumeChanged && (
+              <Pressable 
+                style={[styles.saveButton, loading && styles.saveButtonDisabled]}
+                onPress={saveVolumeSettings}
+                disabled={loading}
+              >
+                <Text style={styles.saveButtonText}>Save</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       </View>
 
@@ -139,6 +170,7 @@ export default function Settings() {
             </View>
           </View>
 
+          {/* TODO: Premium implementation for future release
           {settings?.subscription_tier === 'basic' && (
             <Pressable 
               style={styles.upgradeButton}
@@ -146,7 +178,7 @@ export default function Settings() {
             >
               <Text style={styles.upgradeButtonText}>Upgrade to Premium</Text>
             </Pressable>
-          )}
+          )} */}
         </View>
 
         {/* Premium Features List */}
@@ -211,10 +243,29 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 40,
   },
+  volumeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: theme.spacing.sm,
+  },
   volumeText: {
     fontSize: theme.typography.caption.fontSize,
     color: theme.colors.text.secondary,
-    textAlign: 'center',
+  },
+  saveButton: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.borderRadius.sm,
+  },
+  saveButtonDisabled: {
+    opacity: 0.5,
+  },
+  saveButtonText: {
+    color: theme.colors.text.inverse,
+    fontSize: theme.typography.caption.fontSize,
+    fontWeight: '600',
   },
   subscriptionCard: {
     backgroundColor: theme.colors.surface,

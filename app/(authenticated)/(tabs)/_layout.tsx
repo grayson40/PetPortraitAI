@@ -40,7 +40,7 @@ export default function TabsLayout() {
           },
           tabBarActiveTintColor: theme.colors.primary,
           tabBarInactiveTintColor: theme.colors.secondary,
-          headerShown: true,
+          headerShown: false,
         }}
       >
         <Tabs.Screen
@@ -50,34 +50,34 @@ export default function TabsLayout() {
             tabBarIcon: ({ color }) => (
               <MaterialIcons name="music-note" size={24} color={color} />
             ),
-            headerRight: () => (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 16 }}>
-                <Pressable 
-                  style={({ pressed }) => ({
-                    padding: 8,
-                    backgroundColor: hasActiveFilters ? theme.colors.primary + '10' : theme.colors.surface,
-                    borderRadius: 20,
-                    opacity: pressed ? 0.7 : 1,
-                  })}
-                  onPress={() => setIsFilterSheetVisible(true)}
-                >
-                  <MaterialIcons 
-                    name="tune" 
-                    size={20} 
-                    color={hasActiveFilters ? theme.colors.primary : theme.colors.text.secondary} 
-                  />
-                </Pressable>
+            // headerRight: () => (
+            //   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 16 }}>
+            //     <Pressable 
+            //       style={({ pressed }) => ({
+            //         padding: 8,
+            //         backgroundColor: hasActiveFilters ? theme.colors.primary + '10' : theme.colors.surface,
+            //         borderRadius: 20,
+            //         opacity: pressed ? 0.7 : 1,
+            //       })}
+            //       onPress={() => setIsFilterSheetVisible(true)}
+            //     >
+            //       <MaterialIcons 
+            //         name="tune" 
+            //         size={20} 
+            //         color={hasActiveFilters ? theme.colors.primary : theme.colors.text.secondary} 
+            //       />
+            //     </Pressable>
                 
-                <Pressable 
-                  onPress={() => router.setParams({ 
-                    showSearch: 'true',
-                    source: 'searchIcon' 
-                  })}
-                >
-                  <MaterialIcons name="search" size={24} color={theme.colors.primary} />
-                </Pressable>
-              </View>
-            ),
+            //     <Pressable 
+            //       onPress={() => router.setParams({ 
+            //         showSearch: 'true',
+            //         source: 'searchIcon' 
+            //       })}
+            //     >
+            //       <MaterialIcons name="search" size={24} color={theme.colors.primary} />
+            //     </Pressable>
+            //   </View>
+            // ),
           })}
         />
         <Tabs.Screen
@@ -98,6 +98,16 @@ export default function TabsLayout() {
             ),
           }}
         />
+
+        {/* <Tabs.Screen
+          name="test-detector"
+          options={{
+            title: 'Test Detector',
+            tabBarIcon: ({ color }) => (
+              <MaterialIcons name="settings" size={24} color={color} />
+            ),
+          }}
+        /> */}
       </Tabs>
 
       <FilterSheet

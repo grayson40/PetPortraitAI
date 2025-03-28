@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Platform, RefreshControl, Pressable, Alert, ActionSheetIOS, Image, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, RefreshControl, Pressable, Alert, ActionSheetIOS, Image, FlatList, StatusBar } from 'react-native';
 import { useState, useEffect } from 'react';
 import { BlurView } from 'expo-blur';
 import { SoundService } from '../../services/sound';
@@ -26,7 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import RecordSoundModal from '../../components/RecordSoundModal';
 import UploadSoundModal from '../../components/UploadSoundModal';
 import * as FileSystem from 'expo-file-system';
-import { API_CONFIG } from '../../config/api';
+import { API_CONFIG } from '../../constants/config';
 
 interface Sound {
   id: string;
@@ -54,14 +54,6 @@ interface SoundCollection {
   }>;
 }
 
-interface SoundPack {
-  id: string;
-  name: string;
-  description: string;
-  price: string;
-  image: any; // ImageSourcePropType
-  sounds: Sound[];
-}
 
 interface FeaturedCollection {
   id: string;
@@ -215,7 +207,7 @@ export default function SoundManagement() {
       setCollections(collections);
 
       // Set active collection if exists
-      const activeCollection = collections.find(c => c.is_active);
+      const activeCollection = collections.find((c: SoundCollection) => c.is_active);
       if (activeCollection) {
         setSelectedCollection(activeCollection);
         // Load collection sounds
@@ -452,7 +444,7 @@ export default function SoundManagement() {
           setIsPlaying(false);
           
           // Show error only for serious failures
-          if (err.message && err.message.includes('not loaded')) {
+          if (err instanceof Error && err.message && err.message.includes('not loaded')) {
             Alert.alert('Playback Error', 'Could not play this sound. It may be unavailable.');
           }
         }
@@ -592,7 +584,7 @@ export default function SoundManagement() {
       if (!user) throw new Error('No user found');
       
       // Send to backend
-      const response = await fetch(`${API_CONFIG.url}/api/user-sounds`, {
+      const response = await fetch(`${API_CONFIG.url}/user-sounds`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -668,7 +660,7 @@ export default function SoundManagement() {
       if (!user) throw new Error('No user found');
       
       // Send to backend
-      const response = await fetch(`${API_CONFIG.url}/api/user-sounds`, {
+      const response = await fetch(`${API_CONFIG.url}/user-sounds`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -916,7 +908,8 @@ export default function SoundManagement() {
 
           <Pressable 
             style={styles.upgradeButton}
-            onPress={() => setIsSubscriptionModalVisible(true)}
+            // onPress={() => setIsSubscriptionModalVisible(true)}
+            onPress={() => Alert.alert('Coming Soon', 'Premium features will be available in a future update.')}
           >
             <Text style={styles.upgradeText}>Upgrade Now</Text>
           </Pressable>
@@ -998,6 +991,7 @@ export default function SoundManagement() {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" />
       <Header 
         isPremium={isPremium} 
         onFilterPress={() => setIsFilterSheetVisible(true)}
@@ -1014,6 +1008,10 @@ export default function SoundManagement() {
               renderBasicView()
             )}
           </>
+        )}
+        ListFooterComponent={() => (
+          // Add extra padding at the bottom to prevent FAB from covering content
+          <View style={{ paddingBottom: 100 }} />
         )}
         refreshControl={
           <RefreshControl
@@ -1121,6 +1119,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
+    paddingTop: Platform.OS === 'ios' ? 50 : StatusBar.currentHeight || 0,
   },
   content: {
     flex: 1,

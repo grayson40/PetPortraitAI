@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Image, Dimensions, Animated, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Image, Dimensions, Animated, RefreshControl, StatusBar, Platform } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
 import { getSupabase } from '../../../services/supabase';
@@ -11,7 +11,6 @@ import { API_CONFIG } from '../../../constants/config';
 import { UserService } from '../../../services/user';
 import { useAuth } from '../../../context/auth';
 import SubscriptionModal from '../../../components/SubscriptionModal';
-
 const { width } = Dimensions.get('window');
 const PHOTO_SIZE = width / 4 - theme.spacing.sm * 2;
 
@@ -51,7 +50,7 @@ interface SoundCollection {
 }
 
 export default function Profile() {
-  const { signOut } = useAuth();
+  const { signOut, deleteAccount } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -259,133 +258,138 @@ export default function Profile() {
   };
 
   if (initialLoading) {
-    return <LoadingIndicator message="Loading your profile..." />;
+    return <LoadingIndicator message="Loading profile..." />;
   }
 
   return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-        />
-      }
-    >
-      {/* Profile Header */}
-      <View style={styles.header}>
-        <View style={styles.avatarContainer}>
-          <MaterialIcons name="person" size={40} color={theme.colors.text.inverse} />
-        </View>
-        <Text style={styles.name}>{profile?.display_name || 'User'}</Text>
-        <Text style={styles.email}>{profile?.email || 'email@email.com'}</Text>
-        
-        <View style={styles.actionButtons}>
-          <Pressable 
-            style={styles.actionButton}
-            onPress={() => router.push('/(authenticated)/(tabs)/profile/edit')}
-          >
-            <MaterialIcons name="edit" size={20} color={theme.colors.primary} />
-            <Text style={styles.actionButtonText}>Edit Profile</Text>
-          </Pressable>
-          
-          <Pressable 
-            style={styles.actionButton}
-            onPress={() => router.push('/(authenticated)/(tabs)/profile/settings')}
-          >
-            <MaterialIcons name="settings" size={20} color={theme.colors.primary} />
-            <Text style={styles.actionButtonText}>Settings</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Subscription Card */}
-      <Pressable 
-        style={styles.subscriptionCard}
-        onPress={() => setIsSubscriptionModalVisible(true)}
-      >
-        <View style={styles.subscriptionContent}>
-          <MaterialIcons 
-            name={profile?.subscription_tier === 'premium' ? 'star' : 'star-border'} 
-            size={24} 
-            color={theme.colors.primary} 
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={handleRefresh} 
           />
-          <View style={styles.subscriptionInfo}>
-            <Text style={styles.subscriptionTier}>
-              {profile?.subscription_tier === 'premium' ? 'Premium' : 'Basic'} Plan
-            </Text>
-            {profile?.subscription_tier !== 'premium' && (
-              <Text style={styles.upgradeText}>Upgrade for more features</Text>
-            )}
+        }
+      >
+        {/* Profile Header */}
+        <View style={styles.header}>
+          <View style={styles.avatarContainer}>
+            <MaterialIcons name="person" size={40} color={theme.colors.text.inverse} />
           </View>
-          <MaterialIcons name="chevron-right" size={24} color={theme.colors.text.secondary} />
-        </View>
-      </Pressable>
-
-      {/* Pets Section */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>My Pets</Text>
-          <Pressable 
-            style={styles.addButton}
-            onPress={() => setIsAddPetModalVisible(true)}
-          >
-            <MaterialIcons name="add" size={20} color={theme.colors.text.inverse} />
-            <Text style={styles.addButtonText}>Add Pet</Text>
-          </Pressable>
-        </View>
-        
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.petsScroll}
-        >
-          {profile?.pets.map(pet => (
+          <Text style={styles.name}>{profile?.display_name || 'User'}</Text>
+          <Text style={styles.email}>{profile?.email || 'email@email.com'}</Text>
+          
+          <View style={styles.actionButtons}>
             <Pressable 
-              key={pet.id}
-              style={styles.petCard}
-              onPress={() => {
-                setSelectedPet(pet);
-                setIsPetDetailsModalVisible(true);
-              }}
+              style={styles.actionButton}
+              onPress={() => router.push('/(authenticated)/(tabs)/profile/edit')}
             >
-              <View style={styles.petIcon}>
-                <MaterialIcons name="pets" size={24} color={theme.colors.text.inverse} />
-              </View>
-              <Text style={styles.petName}>{pet.name}</Text>
-              <Text style={styles.petType}>{pet.type}</Text>
+              <MaterialIcons name="edit" size={20} color={theme.colors.primary} />
+              <Text style={styles.actionButtonText}>Edit Profile</Text>
             </Pressable>
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Account Actions */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Account</Text>
-        <View style={styles.accountActions}>
-          <Pressable 
-            style={styles.accountButton}
-            onPress={handleSignOut}
-          >
-            <MaterialIcons name="logout" size={24} color={theme.colors.error} />
-            <Text style={[styles.accountButtonText, { color: theme.colors.error }]}>
-              Sign Out
-            </Text>
-          </Pressable>
-
-          <View style={styles.accountDivider} />
-
-          <Pressable 
-            style={styles.accountButton}
-            onPress={handleDeleteAccount}
-          >
-            <MaterialIcons name="delete-forever" size={24} color={theme.colors.error} />
-            <Text style={[styles.accountButtonText, { color: theme.colors.error }]}>
-              Delete Account
-            </Text>
-          </Pressable>
+            
+            <Pressable 
+              style={styles.actionButton}
+              onPress={() => router.push('/(authenticated)/(tabs)/profile/settings')}
+            >
+              <MaterialIcons name="settings" size={20} color={theme.colors.primary} />
+              <Text style={styles.actionButtonText}>Settings</Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
+
+        {/* Subscription Card */}
+        <Pressable 
+          style={styles.subscriptionCard}
+          // TODO: Premium implementation for future release
+          // onPress={() => setIsSubscriptionModalVisible(true)}
+          onPress={() => Alert.alert('Coming Soon', 'Premium features will be available in a future update.')}
+        >
+          <View style={styles.subscriptionContent}>
+            <MaterialIcons 
+              name={profile?.subscription_tier === 'premium' ? 'star' : 'star-border'} 
+              size={24} 
+              color={theme.colors.primary} 
+            />
+            <View style={styles.subscriptionInfo}>
+              <Text style={styles.subscriptionTier}>
+                {profile?.subscription_tier === 'premium' ? 'Premium' : 'Basic'} Plan
+              </Text>
+              {profile?.subscription_tier !== 'premium' && (
+                <Text style={styles.upgradeText}>Upgrade for more features</Text>
+              )}
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color={theme.colors.text.secondary} />
+          </View>
+        </Pressable>
+
+        {/* Pets Section */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>My Pets</Text>
+            <Pressable 
+              style={styles.addButton}
+              onPress={() => setIsAddPetModalVisible(true)}
+            >
+              <MaterialIcons name="add" size={20} color={theme.colors.text.inverse} />
+              <Text style={styles.addButtonText}>Add Pet</Text>
+            </Pressable>
+          </View>
+          
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.petsScroll}
+          >
+            {profile?.pets.map(pet => (
+              <Pressable 
+                key={pet.id}
+                style={styles.petCard}
+                onPress={() => {
+                  setSelectedPet(pet);
+                  setIsPetDetailsModalVisible(true);
+                }}
+              >
+                <View style={styles.petIcon}>
+                  <MaterialIcons name="pets" size={24} color={theme.colors.text.inverse} />
+                </View>
+                <Text style={styles.petName}>{pet.name}</Text>
+                <Text style={styles.petType}>{pet.type}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Account Actions */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          <View style={styles.accountActions}>
+            <Pressable 
+              style={styles.accountButton}
+              onPress={handleSignOut}
+            >
+              <MaterialIcons name="logout" size={24} color={theme.colors.error} />
+              <Text style={[styles.accountButtonText, { color: theme.colors.error }]}>
+                Sign Out
+              </Text>
+            </Pressable>
+
+            <View style={styles.accountDivider} />
+
+            <Pressable 
+              style={styles.accountButton}
+              onPress={handleDeleteAccount}
+            >
+              <MaterialIcons name="delete-forever" size={24} color={theme.colors.error} />
+              <Text style={[styles.accountButtonText, { color: theme.colors.error }]}>
+                Delete Account
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
 
       {/* Modals */}
       <AddPetModal 
@@ -411,7 +415,7 @@ export default function Profile() {
         currentTier={profile?.subscription_tier || 'basic'}
         loading={upgrading}
       />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -419,6 +423,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
+    paddingTop: Platform.OS === 'ios' ? 50 : StatusBar.currentHeight || 0,
+  },
+  scrollView: {
+    flex: 1,
   },
   header: {
     alignItems: 'center',

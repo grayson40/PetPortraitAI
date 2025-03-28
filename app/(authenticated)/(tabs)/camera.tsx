@@ -1,4 +1,4 @@
-import React, { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
+import React, { View, Text, StyleSheet, Pressable, Alert, Platform, FlatList, ScrollView, StatusBar } from 'react-native';
 import { useState, useRef, useEffect } from 'react';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -352,10 +352,11 @@ export default function CameraScreen() {
         await MediaLibrary.saveToLibraryAsync(photo.uri);
       }
 
-      // Play the selected sound
-      if (selectedSound) {
-        await playSound(selectedSound);
-      }
+      // TODO: This weirdly plays the sound on photo capture ... maybe work better for next version
+      // // Play the selected sound
+      // if (selectedSound) {
+      //   await playSound(selectedSound);
+      // }
 
       // Navigate to photo selection screen
       if (photo?.uri) {
@@ -399,6 +400,7 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" />
       <CameraView
         ref={cameraRef}
         style={styles.camera}
@@ -465,6 +467,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
+    paddingTop: Platform.OS === 'ios' ? 50 : StatusBar.currentHeight || 0,
   },
   camera: {
     flex: 1,
