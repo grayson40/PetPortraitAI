@@ -32,6 +32,7 @@ export default function SignUp() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const { signUp } = useAuth();
   const router = useRouter();
+  const [showPassword, setShowPassword] = useState(false);
 
   const slideX = useRef(new Animated.Value(0)).current;
   const inputScale = useRef(new Animated.Value(1)).current;
@@ -73,6 +74,9 @@ export default function SignUp() {
 
   const animateToStep = (nextStep: Step, isGoingBack = false) => {
     Haptics.selectionAsync();
+    
+    // Dismiss keyboard to ensure it shows with correct type when focused again
+    Keyboard.dismiss();
     
     // Choose direction based on navigation direction
     const slideOutValue = isGoingBack ? 50 : -50;
@@ -208,6 +212,7 @@ export default function SignUp() {
         subtitle: "Let's personalize your experience",
         placeholder: "Enter your name",
         returnKeyType: 'next' as const,
+        keyboardType: 'default' as const,
       },
       email: {
         icon: 'mail-outline' as keyof typeof MaterialIcons.glyphMap,
@@ -215,6 +220,7 @@ export default function SignUp() {
         subtitle: "You'll use this to sign in",
         placeholder: "Enter your email",
         returnKeyType: 'next' as const,
+        keyboardType: 'email-address' as const,
       },
       password: {
         icon: 'lock-outline' as keyof typeof MaterialIcons.glyphMap,
@@ -222,6 +228,7 @@ export default function SignUp() {
         subtitle: "Use at least 6 characters",
         placeholder: "Enter your password",
         returnKeyType: 'done' as const,
+        keyboardType: 'default' as const,
       },
     };
 
@@ -269,8 +276,8 @@ export default function SignUp() {
               value={step === 'name' ? name : step === 'email' ? email : password}
               onChangeText={step === 'name' ? setName : step === 'email' ? setEmail : setPassword}
               autoCapitalize={step === 'name' ? "words" : "none"}
-              keyboardType={step === 'email' ? "email-address" : "default"}
-              secureTextEntry={step === 'password'}
+              keyboardType={content.keyboardType}
+              secureTextEntry={step === 'password' && !showPassword}
               editable={!loading}
               onSubmitEditing={goToNextStep}
               returnKeyType={content.returnKeyType}
@@ -278,6 +285,18 @@ export default function SignUp() {
               enablesReturnKeyAutomatically={true}
               placeholderTextColor={theme.colors.text.secondary + '80'}
             />
+            {step === 'password' && (
+              <Pressable 
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.visibilityToggle}
+              >
+                <MaterialIcons 
+                  name={showPassword ? 'visibility-off' : 'visibility'} 
+                  size={24} 
+                  color={theme.colors.text.secondary} 
+                />
+              </Pressable>
+            )}
           </View>
         </Animated.View>
       </>
@@ -436,5 +455,9 @@ const styles = StyleSheet.create({
   },
   buttonIcon: {
     marginLeft: theme.spacing.sm,
+  },
+  visibilityToggle: {
+    padding: theme.spacing.md,
+    marginRight: 4,
   },
 }); 

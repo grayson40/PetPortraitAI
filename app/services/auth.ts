@@ -16,6 +16,7 @@ export const authService = {
    */
   async signIn(email: string, password: string) {
     try {
+      console.log('Signing in with email:', email);
       const { data, error } = await getSupabase().auth.signInWithPassword({
         email,
         password,
@@ -29,29 +30,30 @@ export const authService = {
       if (!user) throw new Error('No user found');
 
       try {
-        const response = await fetch(`${API_CONFIG.url}/users/${user.id}`);
-        
-        if (!response.ok) {
-          // Create profile if it doesn't exist
-          await fetch(`${API_CONFIG.url}/users`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: user.id,
-              email: user.email,
-              display_name: user.user_metadata?.display_name || email.split('@')[0],
-              subscription_tier: 'basic',
-              sound_volume: 80,
-            }),
-          });
-        }
-
-        // Don't navigate here - let the auth context handle navigation
-        // by reacting to the auth state change
+        // Check if user profile exists - don't wait for this to complete
+        // Just fire the request and let it complete asynchronously
+        fetch(`${API_CONFIG.url}/users/${user.id}`)
+          .then(async response => {
+            if (!response.ok) {
+              // Create profile if it doesn't exist
+              return fetch(`${API_CONFIG.url}/users`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: user.id,
+                  email: user.email,
+                  display_name: user.user_metadata?.display_name || email.split('@')[0],
+                  subscription_tier: 'basic',
+                  sound_volume: 80,
+                }),
+              });
+            }
+          })
+          .catch(err => console.error('Profile handling error:', err));
         
       } catch (error) {
+        // Log the error but don't block authentication
         console.error('Profile error:', error);
-        // Log the error but don't navigate - let auth context handle it
       }
 
       return data;
@@ -135,8 +137,9 @@ export const authService = {
         'user',
       ]);
       
-      // Navigate to auth
-      router.replace('/(auth)');
+      // Don't navigate here - the auth state change will handle navigation
+      // This avoids the "navigate before mounting" error
+      // router.replace('/(auth)'); - REMOVED
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
@@ -205,7 +208,10 @@ export const authService = {
 
   async handleSession(session: any) {
     if (!session) {
-      router.replace('/(auth)');
+      // Delay navigation to ensure app is ready
+      setTimeout(() => {
+        router.replace('/(auth)');
+      }, 300);
       return;
     }
 
@@ -214,10 +220,17 @@ export const authService = {
       if (!user) throw new Error('No user found');
 
       const needsOnboarding = await AsyncStorage.getItem('needsOnboarding');
-      router.replace(needsOnboarding === 'true' ? '/onboarding' : '/(authenticated)/(tabs)');
+      
+      // Delay navigation to ensure app is ready
+      setTimeout(() => {
+        router.replace(needsOnboarding === 'true' ? '/onboarding' : '/(authenticated)/(tabs)');
+      }, 300);
     } catch (error) {
       console.error('Session handling error:', error);
-      router.replace('/(auth)');
+      // Delay navigation to ensure app is ready
+      setTimeout(() => {
+        router.replace('/(auth)');
+      }, 300);
     }
   }
 }; 
