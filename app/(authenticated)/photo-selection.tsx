@@ -6,6 +6,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../styles/theme';
 import * as FileSystem from 'expo-file-system';
 import { API_CONFIG } from '../constants/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // For typed API responses
 interface VisionAPIResult {
@@ -25,6 +26,14 @@ interface AISuggestion {
   caption: string;
   hashtags: string[];
 }
+
+// Normalize hashtag format (ensure it starts with # and remove extra whitespace)
+const normalizeHashtag = (tag: string): string => {
+  // Remove any whitespace and make it one word
+  const cleaned = tag.trim().replace(/\s+/g, '');
+  // Add # prefix if it doesn't exist
+  return cleaned.startsWith('#') ? cleaned : `#${cleaned}`;
+};
 
 export default function PhotoSelection() {
   const { photos: photoString } = useLocalSearchParams<{ photos: string }>();
@@ -127,6 +136,11 @@ export default function PhotoSelection() {
     try {
       // Convert image to base64
       const imageBase64 = await getImageBase64(selectedPhoto);
+
+      // Get user personality from AsyncStorage
+      const userProfile = await AsyncStorage.getItem('user_profile');
+      const userProfileJson = userProfile ? JSON.parse(userProfile) : null;
+      const personality = userProfileJson?.caption_personality || 'short';
       
       // Call backend API using fetch instead of axios
       const response = await fetch(`${API_CONFIG.url}/captions/generate`, {
@@ -136,7 +150,8 @@ export default function PhotoSelection() {
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          imageBase64
+          imageBase64,
+          personality: personality
         })
       });
       
@@ -148,8 +163,18 @@ export default function PhotoSelection() {
       // Parse the JSON response
       const data = await response.json();
       
+      // Normalize hashtags to ensure proper formatting
+      const normalizedData = {
+        ...data,
+        hashtags: Array.isArray(data.hashtags) 
+          ? data.hashtags
+              .filter(tag => tag && typeof tag === 'string')
+              .map(normalizeHashtag)
+          : []
+      };
+      
       // Set the AI suggestion from the API response
-      setAiSuggestion(data);
+      setAiSuggestion(normalizedData);
     } catch (error) {
       console.error('Error generating suggestions:', error);
       Alert.alert('Error', 'Failed to generate suggestions. Please try again.');
@@ -295,9 +320,20 @@ export default function PhotoSelection() {
             <Text style={styles.captionText}>{aiSuggestion.caption}</Text>
             
             <View style={styles.hashtagContainer}>
-              {aiSuggestion.hashtags.map((tag, index) => (
-                <Text key={index} style={styles.hashtagText}>{tag}</Text>
-              ))}
+              {aiSuggestion?.hashtags && aiSuggestion.hashtags.length > 0 ? (
+                aiSuggestion.hashtags.map((tag, index) => (
+                  <Text 
+                    key={index} 
+                    style={styles.hashtagText}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {tag}
+                  </Text>
+                ))
+              ) : (
+                <Text style={styles.noHashtagsText}>No hashtags available</Text>
+              )}
             </View>
             
             <Pressable
@@ -532,6 +568,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: theme.spacing.md,
+    minHeight: 30,
   },
   hashtagText: {
     fontSize: theme.typography.caption.fontSize,
@@ -540,7 +577,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: 6,
     borderRadius: theme.borderRadius.full,
-    overflow: 'hidden',
+    overflow: 'visible',
+    textAlign: 'center',
+    maxWidth: '100%',
+  },
+  noHashtagsText: {
+    fontSize: theme.typography.caption.fontSize,
+    color: theme.colors.text.secondary,
+    fontStyle: 'italic',
   },
   copyButton: {
     flexDirection: 'row',

@@ -1,8 +1,7 @@
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { theme } from '../../../styles/theme';
-import { SoundCollection } from '../../../types/SoundCollection';
-
+import { theme } from '../styles/theme';
+import { SoundCollection } from '../services/sound';
 interface ActiveCollectionProps {
   collection: SoundCollection;
   onPress: () => void;

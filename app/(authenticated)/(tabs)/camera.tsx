@@ -93,62 +93,91 @@ export default function CameraScreen() {
           const tier = userProfileData.subscription_tier === 'premium' ? 'premium' : 'basic';
           setUserTier(tier);
           
+          // Get user sounds for all users
+          const soundService = SoundService.getInstance();
+          const userRecordedSounds = await soundService.getUserSounds();
+          
           if (tier === 'basic') {
-            // For basic users, just load basic sounds
-            // const nonPremiumSounds = mockSounds.filter(sound => !sound.isPremium);
-            setCollectionSounds(mockSounds);
+            // For basic users, load basic sounds AND user recorded sounds
+            const combinedSounds = [...mockSounds, ...userRecordedSounds];
+            setCollectionSounds(combinedSounds);
             
-            // if (nonPremiumSounds.length > 0) {
-            //   setSelectedSound(nonPremiumSounds[0]);
-            // }
+            // Default to first user sound if available, otherwise first basic sound
+            if (userRecordedSounds.length > 0) {
+              setSelectedSound(userRecordedSounds[0]);
+            } else if (mockSounds.length > 0) {
+              setSelectedSound(mockSounds[0]);
+            }
           } else {
-            // For premium users, load sounds from their collection
+            // For premium users, load sounds from their collection and user sounds
             const activeCollectionId = await AsyncStorage.getItem('activeCollectionId');
             
             if (!activeCollectionId) {
-              // If no active collection, use default collection
+              // If no active collection, use default collection or basic sounds + user sounds
               const collectionService = CollectionService.getInstance();
               const collections = await collectionService.getUserCollections();
               
               if (collections && collections.length > 0) {
                 const defaultCollection = collections[0];
                 await collectionService.setActiveCollection(defaultCollection.id);
-                const sounds = await collectionService.getCollectionSounds(defaultCollection.id);
-                setCollectionSounds(sounds);
+                const collectionSounds = await collectionService.getCollectionSounds(defaultCollection.id);
                 
-                if (sounds.length > 0) {
-                  setSelectedSound(sounds[0]);
+                // Combine collection sounds with user recorded sounds
+                const combinedSounds = [...collectionSounds, ...userRecordedSounds];
+                setCollectionSounds(combinedSounds);
+                
+                // Prefer user sounds, then collection sounds
+                if (userRecordedSounds.length > 0) {
+                  setSelectedSound(userRecordedSounds[0]);
+                } else if (collectionSounds.length > 0) {
+                  setSelectedSound(collectionSounds[0]);
                 }
               } else {
-                // If no collections at all, fallback to basic sounds
-                setCollectionSounds(basicSounds);
-                if (basicSounds.length > 0) {
+                // If no collections at all, fallback to basic sounds + user sounds
+                const combinedSounds = [...basicSounds, ...userRecordedSounds];
+                setCollectionSounds(combinedSounds);
+                
+                // Prefer user sounds, then basic sounds
+                if (userRecordedSounds.length > 0) {
+                  setSelectedSound(userRecordedSounds[0]);
+                } else if (basicSounds.length > 0) {
                   setSelectedSound(basicSounds[0]);
                 }
               }
             } else {
-              // Load sounds from active collection
+              // Load sounds from active collection and user sounds
               const collectionService = CollectionService.getInstance();
-              const sounds = await collectionService.getCollectionSounds(activeCollectionId);
+              const collectionSounds = await collectionService.getCollectionSounds(activeCollectionId);
               
-              if (sounds && sounds.length > 0) {
-                setCollectionSounds(sounds);
+              // Combine collection sounds with user recorded sounds
+              const combinedSounds = [...collectionSounds, ...userRecordedSounds];
+              
+              if (combinedSounds.length > 0) {
+                setCollectionSounds(combinedSounds);
                 
                 // Try to load previously selected sound or default to first
                 const storedSelectedSound = await AsyncStorage.getItem('selectedSound');
                 if (storedSelectedSound) {
                   const parsedSound = JSON.parse(storedSelectedSound);
-                  const foundSound = sounds.find((s: Sound) => s.id === parsedSound.id);
+                  const foundSound = combinedSounds.find((s: Sound) => s.id === parsedSound.id);
                   if (foundSound) {
                     setSelectedSound(foundSound);
+                  } else if (userRecordedSounds.length > 0) {
+                    // Prefer user sounds if previously selected sound not found
+                    setSelectedSound(userRecordedSounds[0]);
                   } else {
-                    setSelectedSound(sounds[0]);
+                    setSelectedSound(combinedSounds[0]);
                   }
                 } else {
-                  setSelectedSound(sounds[0]);
+                  // No previously selected sound - prefer user sounds
+                  if (userRecordedSounds.length > 0) {
+                    setSelectedSound(userRecordedSounds[0]);
+                  } else {
+                    setSelectedSound(combinedSounds[0]);
+                  }
                 }
               } else {
-                // If no sounds in collection, fallback to basic sounds
+                // If no sounds in collection or user sounds, fallback to basic sounds
                 setCollectionSounds(basicSounds);
                 if (basicSounds.length > 0) {
                   setSelectedSound(basicSounds[0]);
@@ -158,8 +187,16 @@ export default function CameraScreen() {
           }
         } else {
           // No user profile, default to basic sounds
-          setCollectionSounds(basicSounds);
-          if (basicSounds.length > 0) {
+          const soundService = SoundService.getInstance();
+          const userRecordedSounds = await soundService.getUserSounds();
+          const combinedSounds = [...basicSounds, ...userRecordedSounds];
+          
+          setCollectionSounds(combinedSounds);
+          
+          // Prefer user sounds if available
+          if (userRecordedSounds.length > 0) {
+            setSelectedSound(userRecordedSounds[0]);
+          } else if (basicSounds.length > 0) {
             setSelectedSound(basicSounds[0]);
           }
         }
@@ -170,10 +207,26 @@ export default function CameraScreen() {
           'Failed to initialize camera. Please try again later.'
         );
         
-        // Fall back to basic sounds
-        setCollectionSounds(basicSounds);
-        if (basicSounds.length > 0) {
-          setSelectedSound(basicSounds[0]);
+        // Fall back to basic sounds, also try to get user sounds
+        try {
+          const soundService = SoundService.getInstance();
+          const userRecordedSounds = await soundService.getUserSounds();
+          const combinedSounds = [...basicSounds, ...userRecordedSounds];
+          
+          setCollectionSounds(combinedSounds);
+          
+          // Prefer user sounds if available
+          if (userRecordedSounds.length > 0) {
+            setSelectedSound(userRecordedSounds[0]);
+          } else if (basicSounds.length > 0) {
+            setSelectedSound(basicSounds[0]);
+          }
+        } catch (fallbackError) {
+          // Last resort - just use basic sounds
+          setCollectionSounds(basicSounds);
+          if (basicSounds.length > 0) {
+            setSelectedSound(basicSounds[0]);
+          }
         }
       } finally {
         setLoading(false);

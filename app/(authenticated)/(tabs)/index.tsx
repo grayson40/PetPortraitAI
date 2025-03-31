@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react';
 import { BlurView } from 'expo-blur';
 import { SoundService } from '../../services/sound';
 import { UserService } from '../../services/user';
-import { Header } from './components/Header';
-import { ActiveCollection } from './components/ActiveCollection';
-import { SoundGrid } from './components/SoundGrid';
+import { Header } from '../../components/Header';
+import { ActiveCollection } from '../../components/ActiveCollection';
+import { SoundGrid } from '../../components/SoundGrid';
 import LoadingIndicator from '../../components/LoadingIndicator';
 import { theme } from '../../styles/theme';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -27,15 +27,18 @@ import RecordSoundModal from '../../components/RecordSoundModal';
 import UploadSoundModal from '../../components/UploadSoundModal';
 import * as FileSystem from 'expo-file-system';
 import { API_CONFIG } from '../../constants/config';
+import EditSoundModal from '../../components/EditSoundModal';
 
 interface Sound {
   id: string;
   name: string;
   category: string;
   url?: string;
+  uri?: string;
   isPremium: boolean;
   order_index?: number;
   icon?: string;
+  isUserSound?: boolean;
 }
 
 interface UserProfile {
@@ -46,14 +49,18 @@ interface SoundCollection {
   id: string;
   name: string;
   is_active: boolean;
+  created_at?: string;
+  user_id?: string;
   collection_sounds: Array<{
     sound_id: string;
     sound_type: 'default' | 'marketplace' | 'user';
     order_index: number;
     sound: Sound;
   }>;
+  description?: string;
+  soundCount?: number;
+  sounds?: Sound[];
 }
-
 
 interface FeaturedCollection {
   id: string;
@@ -165,6 +172,8 @@ export default function SoundManagement() {
   const [selectedCollectionSounds, setSelectedCollectionSounds] = useState<Sound[]>([]);
   const [isRecordModalVisible, setIsRecordModalVisible] = useState(false);
   const [isUploadModalVisible, setIsUploadModalVisible] = useState(false);
+  const [isEditSoundModalVisible, setIsEditSoundModalVisible] = useState(false);
+  const [selectedSoundForEdit, setSelectedSoundForEdit] = useState<Sound | null>(null);
 
   const isPremium = userProfile?.subscription_tier === 'premium';
 
@@ -222,16 +231,15 @@ export default function SoundManagement() {
       await soundService.clearCache();
       await soundService.initialize();
 
+      // Fetch user sounds for all users
+      const userSounds = await soundService.getUserSounds();
+      setUserSounds(userSounds);
+
       // Load appropriate sounds based on subscription
       if (profile?.subscription_tier === 'premium') {
         setSounds([...DEFAULT_SOUNDS, ...PREMIUM_SOUNDS]);
-        
-        // Fetch user sounds if premium
-        const userSounds = await soundService.getUserSounds();
-        setUserSounds(userSounds);
       } else {
         setSounds(DEFAULT_SOUNDS);
-        setUserSounds([]);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -700,6 +708,91 @@ export default function SoundManagement() {
     }
   };
 
+  const handleSoundAction = (sound: Sound) => {
+    // Only run this action if it's a user sound (has isUserSound property)
+    if ('isUserSound' in sound && sound.isUserSound) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      if (Platform.OS === 'ios') {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: ['Cancel', 'Play', 'Edit', 'Delete'],
+            destructiveButtonIndex: 3,
+            cancelButtonIndex: 0,
+          },
+          async (buttonIndex) => {
+            if (buttonIndex === 0) return;
+
+            switch (buttonIndex) {
+              case 1: // Play
+                handlePlayPause(sound);
+                break;
+              case 2: // Edit
+                handleEditSound(sound);
+                break;
+              case 3: // Delete
+                handleDeleteUserSound(sound.id);
+                break;
+            }
+          }
+        );
+      } else {
+        // For Android, use proper style values
+        Alert.alert('Sound Options', 'Choose an action', [
+          {
+            text: 'Play',
+            onPress: () => handlePlayPause(sound),
+          },
+          {
+            text: 'Edit',
+            onPress: () => handleEditSound(sound),
+          },
+          {
+            text: 'Delete',
+            onPress: () => handleDeleteUserSound(sound.id),
+            style: 'destructive' as 'destructive',
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel' as 'cancel',
+          },
+        ]);
+      }
+    } else {
+      // Just play non-user sounds
+      handlePlayPause(sound);
+    }
+  };
+
+  const handleEditSound = (sound: Sound) => {
+    setSelectedSoundForEdit(sound);
+    setIsEditSoundModalVisible(true);
+  };
+  
+  const handleSaveEditedSound = async (editedSound: Sound | null) => {
+    if (editedSound === null) {
+      // Sound was deleted
+      setUserSounds(prevSounds => prevSounds.filter(s => s.id !== selectedSoundForEdit?.id));
+      
+      // Close preview if it's the deleted sound
+      if (previewingSound?.id === selectedSoundForEdit?.id) {
+        handlePreviewClose();
+      }
+    } else {
+      // Sound was edited
+      setUserSounds(prevSounds => 
+        prevSounds.map(sound => 
+          sound.id === editedSound.id ? editedSound : sound
+        )
+      );
+      
+      // Update preview if it's the edited sound
+      if (previewingSound?.id === editedSound.id) {
+        setPreviewingSound(editedSound);
+      }
+    }
+  };
+
   const renderPremiumView = () => (
     <>
       {/* Active Collection Card */}
@@ -848,7 +941,7 @@ export default function SoundManagement() {
             onSoundPress={handlePlayPause}
             isPlaying={isPlaying}
             playingSound={previewingSound}
-            onLongPress={handleDeleteUserSound}
+            onLongPress={handleSoundAction}
             isUserSounds={true}
           />
         </View>
@@ -869,8 +962,48 @@ export default function SoundManagement() {
 
   const renderBasicView = () => (
     <>
+      {/* User Sounds Section - Show first if they have created any */}
+      {userSounds.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Sounds</Text>
+            <Pressable 
+              style={styles.addButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleFabPress();
+              }}
+            >
+              <MaterialIcons name="add" size={24} color={theme.colors.primary} />
+            </Pressable>
+          </View>
+          <SoundGrid
+            sounds={filteredUserSounds}
+            onSoundPress={handlePlayPause}
+            isPlaying={isPlaying}
+            playingSound={previewingSound}
+            onLongPress={handleSoundAction}
+            isUserSounds={true}
+          />
+        </View>
+      )}
+
+      {/* Basic Sounds Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Basic Sounds</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Basic Sounds</Text>
+          {userSounds.length === 0 && (
+            <Pressable 
+              style={styles.addButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleFabPress();
+              }}
+            >
+              <MaterialIcons name="add" size={24} color={theme.colors.primary} />
+            </Pressable>
+          )}
+        </View>
         <SoundGrid
           sounds={DEFAULT_SOUNDS}
           onSoundPress={handlePlayPause}
@@ -878,6 +1011,8 @@ export default function SoundManagement() {
           playingSound={previewingSound}
         />
       </View>
+
+      {/* Premium upgrade section */}
       <BlurView intensity={80} tint="light" style={styles.premiumPreview}>
         <View style={styles.premiumContent}>
           <MaterialIcons name="star" size={32} color={theme.colors.warning} />
@@ -908,7 +1043,6 @@ export default function SoundManagement() {
 
           <Pressable 
             style={styles.upgradeButton}
-            // onPress={() => setIsSubscriptionModalVisible(true)}
             onPress={() => Alert.alert('Coming Soon', 'Premium features will be available in a future update.')}
           >
             <Text style={styles.upgradeText}>Upgrade Now</Text>
@@ -919,14 +1053,15 @@ export default function SoundManagement() {
   );
 
   const handleFabPress = () => {
-    if (!isPremium) {
-      return;
-    }
-
+    // Different options for premium and non-premium users
+    const options = isPremium 
+      ? ['Cancel', 'Record Sound', 'Upload Sound', 'New Collection']
+      : ['Cancel', 'Record Sound', 'Upload Sound'];
+    
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ['Cancel', 'Record Sound', 'Upload Sound', 'New Collection'],
+          options: options,
           cancelButtonIndex: 0,
         },
         async (buttonIndex) => {
@@ -934,58 +1069,92 @@ export default function SoundManagement() {
           
           await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-          switch (buttonIndex) {
-            case 1:
-              handleRecordSound();
-              break;
-            case 2:
-              handleUploadSound();
-              break;
-            case 3:
-              setIsCreateModalVisible(true);
-              break;
+          if (isPremium) {
+            switch (buttonIndex) {
+              case 1:
+                handleRecordSound();
+                break;
+              case 2:
+                handleUploadSound();
+                break;
+              case 3:
+                setIsCreateModalVisible(true);
+                break;
+            }
+          } else {
+            switch (buttonIndex) {
+              case 1:
+                handleRecordSound();
+                break;
+              case 2:
+                handleUploadSound();
+                break;
+            }
           }
         }
       );
     } else {
-      Alert.alert('Add New', 'Choose an option', [
-        {
-          text: 'Record Sound',
-          onPress: handleRecordSound,
-        },
-        {
-          text: 'Upload Sound',
-          onPress: handleUploadSound,
-        },
-        {
-          text: 'New Collection',
-          onPress: () => setIsCreateModalVisible(true),
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ]);
+      // For Android, use proper style values
+      const alertOptions = isPremium 
+        ? [
+            {
+              text: 'Record Sound',
+              onPress: () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleRecordSound();
+              },
+            },
+            {
+              text: 'Upload Sound',
+              onPress: () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleUploadSound();
+              },
+            },
+            {
+              text: 'New Collection',
+              onPress: () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setIsCreateModalVisible(true);
+              },
+            },
+            {
+              text: 'Cancel',
+              style: 'cancel' as 'cancel',
+            },
+          ]
+        : [
+            {
+              text: 'Record Sound',
+              onPress: () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleRecordSound();
+              },
+            },
+            {
+              text: 'Upload Sound',
+              onPress: () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleUploadSound();
+              },
+            },
+            {
+              text: 'Cancel',
+              style: 'cancel' as 'cancel',
+            },
+          ];
+      
+      Alert.alert('Add New', 'Choose an option', alertOptions);
     }
   };
 
   const handleRecordSound = async () => {
-    if (!isPremium) {
-      Alert.alert('Premium Feature', 'Recording sounds is a premium feature. Please upgrade to use this feature.');
-      return;
-    }
-    
-    // Open the recording modal
+    // Allow all users to record sounds
     setIsRecordModalVisible(true);
   };
 
   const handleUploadSound = async () => {
-    if (!isPremium) {
-      Alert.alert('Premium Feature', 'Uploading sounds is a premium feature. Please upgrade to use this feature.');
-      return;
-    }
-    
-    // Open the upload modal
+    // Allow all users to upload sounds
     setIsUploadModalVisible(true);
   };
 
@@ -1021,18 +1190,17 @@ export default function SoundManagement() {
         }
       />
 
-      {isPremium && (
-        <Pressable 
-          style={[styles.fab, styles.fabPremium]}
-          onPress={handleFabPress}
-        >
-          <MaterialIcons 
-            name="add" 
-            size={28} 
-            color="#FFF" 
-          />
-        </Pressable>
-      )}
+      {/* Show FAB for all users */}
+      <Pressable 
+        style={[styles.fab, isPremium ? styles.fabPremium : styles.fabBasic]}
+        onPress={handleFabPress}
+      >
+        <MaterialIcons 
+          name="add" 
+          size={28} 
+          color="#FFF" 
+        />
+      </Pressable>
 
       <CreateCollectionModal
         visible={isCreateModalVisible}
@@ -1110,6 +1278,13 @@ export default function SoundManagement() {
         visible={isUploadModalVisible}
         onClose={() => setIsUploadModalVisible(false)}
         onSave={handleSaveUploadedSound}
+      />
+
+      <EditSoundModal
+        visible={isEditSoundModalVisible}
+        onClose={() => setIsEditSoundModalVisible(false)}
+        sound={selectedSoundForEdit}
+        onSave={handleSaveEditedSound}
       />
     </View>
   );

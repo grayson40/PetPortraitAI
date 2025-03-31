@@ -40,6 +40,7 @@ interface UserProfile {
     sounds_count: number;
   };
   sound_volume: number;
+  caption_personality?: 'funny' | 'formal' | 'short' | 'custom';
 }
 
 interface SoundCollection {
@@ -280,6 +281,28 @@ export default function Profile() {
           </View>
           <Text style={styles.name}>{profile?.display_name || 'User'}</Text>
           <Text style={styles.email}>{profile?.email || 'email@email.com'}</Text>
+          
+          {/* Caption Personality Badge */}
+          <Pressable 
+            style={styles.captionPersonalityBadge}
+            onPress={() => router.push('/(authenticated)/(tabs)/profile/settings')}
+          >
+            <MaterialIcons 
+              name={
+                profile?.caption_personality === 'funny' ? 'mood' : 
+                profile?.caption_personality === 'formal' ? 'business' : 
+                'short-text'
+              } 
+              size={16} 
+              color={theme.colors.text.inverse} 
+            />
+            <Text style={styles.captionPersonalityText}>
+              {profile?.caption_personality === 'funny' ? 'Funny' : 
+               profile?.caption_personality === 'formal' ? 'Formal' : 
+               'Short'} Captions
+            </Text>
+            <MaterialIcons name="settings" size={14} color={theme.colors.text.inverse} />
+          </Pressable>
           
           <View style={styles.actionButtons}>
             <Pressable 
@@ -619,5 +642,20 @@ const styles = StyleSheet.create({
   },
   photosGrid: {
     gap: theme.spacing.sm,
+  },
+  captionPersonalityBadge: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    borderRadius: theme.borderRadius.full,
+    alignItems: 'center',
+    marginBottom: theme.spacing.md,
+    gap: 4,
+  },
+  captionPersonalityText: {
+    color: theme.colors.text.inverse,
+    fontSize: 12,
+    fontWeight: '600',
   },
 }); 

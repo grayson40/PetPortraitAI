@@ -25,7 +25,7 @@ interface Sound {
   };
 }
 
-interface SoundCollection {
+export interface SoundCollection {
   id: string;
   name: string;
   is_active: boolean;
@@ -63,6 +63,10 @@ export class SoundService {
   private supabase = getSupabase();
   private soundCache: Map<string, Sound> = new Map();
   private initialized: boolean = false;
+  private cache: Map<string, any> = new Map();
+  private soundInstance: Audio.Sound | null = null;
+  private playbackStatus: any = null;
+  private statusUpdateCallback: ((status: any) => void) | null = null;
 
   private constructor() {
     this.cacheService = CacheService.getInstance();
@@ -533,6 +537,57 @@ export class SoundService {
       return true;
     } catch (error) {
       console.error('Error deleting sound:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Crop a user sound by adjusting start and end times
+   * @param soundId - The id of the sound to crop
+   * @param startTime - The new start time in milliseconds
+   * @param endTime - The new end time in milliseconds
+   * @returns The edited sound object
+   */
+  async cropUserSound(soundId: string, startTime: number, endTime: number): Promise<Sound> {
+    try {
+      const { data: { user } } = await this.supabase.auth.getUser();
+      if (!user) {
+        throw new Error('No authenticated user found');
+      }
+
+      // Make API request to backend to crop the sound
+      const response = await fetch(`${API_CONFIG.url}/user-sounds/${soundId}/crop`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'user-id': user.id
+        },
+        body: JSON.stringify({
+          startTime,
+          endTime
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to crop sound');
+      }
+
+      // Get the server response with the updated sound details
+      const updatedSound = await response.json();
+      
+      // Update cache if needed
+      if (this.cache.has('userSounds')) {
+        const userSounds = this.cache.get('userSounds');
+        const updatedSounds = userSounds.map((sound: Sound) => 
+          sound.id === soundId ? { ...sound, ...updatedSound } : sound
+        );
+        this.cache.set('userSounds', updatedSounds);
+      }
+
+      return updatedSound;
+    } catch (error) {
+      console.error('Error cropping user sound:', error);
       throw error;
     }
   }

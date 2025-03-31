@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, Platform } from 'react-native';
-import { theme } from '../../../styles/theme';
-import { UserService } from '../../../services/user';
+import { theme } from '../styles/theme';
+import { UserService } from '../services/user';
 import { useState, useEffect } from 'react';
 
 interface HeaderProps {
