@@ -1,17 +1,22 @@
 {
   "expo": {
-    "name": "PetPortraitAI",
-    "slug": "pet-portrait-ai",
-    "scheme": "petportraitai",
+    "name": "Pet Portrait",
+    "slug": "pet-portrait",
+    "scheme": "petportrait",
     "version": "1.0.0",
     "plugins": [
       "expo-router"
     ],
     "ios": {
-      "bundleIdentifier": "com.yourcompany.petportraitai"
+      "bundleIdentifier": "com.toro.petportrait"
     },
     "android": {
-      "package": "com.yourcompany.petportraitai"
+      "package": "com.toro.petportrait"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "fb1b3d51-994b-4eb2-a849-268c58caa40b"
+      }
     }
   }
 }

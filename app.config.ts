@@ -2,8 +2,8 @@ import 'dotenv/config';
 
 export default {
   expo: {
-    name: 'PetPortraitAI',
-    slug: 'pet-portrait-ai',
+    name: 'Pet Portrait',
+    slug: 'pet-portrait',
     version: '1.0.0',
     orientation: 'portrait',
     icon: './app/assets/icon.png',
@@ -19,14 +19,14 @@ export default {
     ],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.yourcompany.petportraitai'
+      bundleIdentifier: 'com.toro.petportrait'
     },
     android: {
       adaptiveIcon: {
         foregroundImage: './app/assets/icon.png',
         backgroundColor: '#ffffff'
       },
-      package: 'com.yourcompany.petportraitai'
+      package: 'com.toro.petportrait'
     },
     plugins: [
       'expo-router',
